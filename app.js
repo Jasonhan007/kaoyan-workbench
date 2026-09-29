@@ -21,6 +21,7 @@ var FULL_TOTAL_MAX = 500;
 var DEFAULT_SETTINGS = {
   school: '杭州电子科技大学',
   major: '11408',
+  salaryGoal: '20w',
   examDate: '2026-12-19',
   // 每日每科目标学习时长（分钟）
   dailySubjectMin: { politics: 45, english: 60, math: 120, cs408: 90 },
@@ -396,7 +397,9 @@ function renderTop() {
   document.getElementById('topMark').textContent = left >= 0 ? left : '0';
   document.getElementById('topTitle').textContent = TAB_META[curTab][0];
   var sub = s.school + ' · ' + s.major;
-  if (curTab === 'scores') {
+  if (curTab === 'today') {
+    sub = '目标 ' + targetSum() + ' 分 · 每日 ' + hoursShort(dailyTotalMin());
+  } else if (curTab === 'scores') {
     var lt = latestTotal();
     sub = lt ? '最近总分 ' + lt.value + ' / 目标 ' + targetSum() : '还没有成绩记录';
   } else if (curTab === 'calendar') {
@@ -423,11 +426,14 @@ function renderCountdown() {
   var mon = monthsLeft(t, s.examDate);
   var d = parseKey(s.examDate);
   var h = '<div class="card cd" data-act="exam-edit">';
-  h += '<div class="cd-top"><span class="cd-label">距离初试</span><span class="cd-date">' +
-       d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()) + ' · ' + WD[d.getDay()] + '</span></div>';
-  h += '<div class="cd-days"><span class="n num">' + (left >= 0 ? left : 0) + '</span><span class="u">天</span></div>';
+  h += '<div class="cd-top">' +
+       '<span class="cd-school">' + esc(s.school) + '</span>' +
+       '<span class="cd-date">' + d.getFullYear() + '.' + pad(d.getMonth() + 1) + '.' + pad(d.getDate()) + ' · ' + WD[d.getDay()] + '</span>' +
+       '</div>';
+  h += '<div class="cd-days"><span class="n num">' + (left >= 0 ? left : 0) + '</span><span class="u">天</span>' +
+       '<span class="cd-salary">目标年薪 <b>' + esc(s.salaryGoal) + '</b></span></div>';
   h += '<div class="cd-meta"><span>剩余 <b>' + weeks + '</b> 周 <b>' + rest + '</b> 天</span>' +
-       '<span>约 <b>' + mon + '</b> 个月</span></div>';
+       '<span>' + esc(s.major) + ' · 约 <b>' + mon + '</b> 个月</span></div>';
   h += '</div>';
   document.getElementById('countdownCard').innerHTML = h;
 }
@@ -661,26 +667,33 @@ function monthKeys(view) {
   }
   return out;
 }
+function calDotsHTML(dk) {
+  var dots = todosOf(dk).slice(0, MAX_TODOS).map(function (x) {
+    return '<i class="dot' + (x.done ? ' done' : '') + '"></i>';
+  }).join('');
+  return dots || '<i class="dot-slot"></i>';
+}
+function updateCalSub() {
+  var p = calView.split('-'), y = +p[0], m = +p[1] - 1;
+  var n = 0, d = new Date(y, m, 1);
+  while (d.getMonth() === m) { n += todosOf(keyOf(d)).length; d = addDays(d, 1); }
+  document.getElementById('calSub').textContent =
+    '本月 ' + n + ' 个事项 · 每天最多 ' + MAX_TODOS + ' 个事项';
+}
 function renderCalendar() {
   var view = calView, p = view.split('-');
   document.getElementById('calMonth').textContent = p[0] + ' 年 ' + (+p[1]) + ' 月';
   document.getElementById('calWeek').innerHTML = ['一', '二', '三', '四', '五', '六', '日']
     .map(function (w) { return '<span>' + w + '</span>'; }).join('');
   var cells = monthKeys(view), t = today();
-  var monthCount = 0;
   var h = cells.map(function (c) {
-    var list = todosOf(c.key);
-    if (c.inMonth) monthCount += list.length;
     var cls = 'cal-cell' + (c.inMonth ? '' : ' out') + (c.key === t ? ' today' : '') + (c.key === selDay ? ' sel' : '');
-    var dots = list.slice(0, MAX_TODOS).map(function (x) {
-      return '<i class="dot' + (x.done ? ' done' : '') + '"></i>';
-    }).join('');
     return '<div class="' + cls + '" data-act="cal-day" data-d="' + c.key + '">' +
       '<span class="d num">' + c.day + '</span>' +
-      '<span class="dots">' + (dots || '<i class="dot-slot"></i>') + '</span></div>';
+      '<span class="dots">' + calDotsHTML(c.key) + '</span></div>';
   }).join('');
   document.getElementById('calGrid').innerHTML = h;
-  document.getElementById('calSub').textContent = '本月 ' + monthCount + ' 个事项 · 每天最多 ' + MAX_TODOS + ' 个事项';
+  updateCalSub();
   renderDayDetail();
 }
 
@@ -722,10 +735,12 @@ function renderSettings() {
   var h = '';
 
   h += '<div class="set-group"><h3>目标</h3><div class="set-list">';
-  h += '<div class="set-row"><div class="set-lb">考试日期</div><div class="set-field">' +
-       '<input type="date" data-set="examDate" value="' + s.examDate + '"></div></div>';
   h += '<div class="set-row" data-act="exam-edit"><div class="set-lb">目标院校 / 专业课</div>' +
        '<div class="set-field"><span style="font-size:13.5px;color:var(--ink-2)">' + esc(s.school) + ' · ' + esc(s.major) + '</span>' + chevSVG() + '</div></div>';
+  h += '<div class="set-row"><div class="set-lb">目标年薪<small>首页激励标语</small></div><div class="set-field">' +
+       '<input type="text" data-set="salaryGoal" value="' + esc(s.salaryGoal) + '" placeholder="20w" style="width:82px"></div></div>';
+  h += '<div class="set-row"><div class="set-lb">考试日期</div><div class="set-field">' +
+       '<input type="date" data-set="examDate" value="' + s.examDate + '"></div></div>';
   h += '</div></div>';
 
   h += '<div class="set-group"><h3>四科目标分数</h3><div class="set-list">';
@@ -744,13 +759,13 @@ function renderSettings() {
     var mn = num(s.dailySubjectMin[sj.key]) || 0;
     h += '<div class="set-row"><div class="set-lb"><span style="display:inline-flex;align-items:center;gap:8px">' +
          '<i style="width:8px;height:8px;border-radius:50%;background:' + sj.color + ';display:inline-block"></i>' + sj.name +
-         '<small>' + hoursText(mn) + '</small></span></div><div class="set-field"><div class="stepper">' +
+         '<small data-daysub="' + sj.key + '">' + hoursText(mn) + '</small></span></div><div class="set-field"><div class="stepper">' +
          '<button data-act="day-step" data-key="' + sj.key + '" data-d="-15">−</button>' +
-         '<b class="num">' + (mn >= 60 ? (Math.floor(mn / 60) + 'h' + (mn % 60 ? pad(mn % 60) : '')) : mn + 'm') + '</b>' +
+         '<b class="num" data-dayval="' + sj.key + '">' + planTimeText(mn) + '</b>' +
          '<button data-act="day-step" data-key="' + sj.key + '" data-d="15">＋</button></div></div></div>';
   });
   h += '<div class="set-row"><div class="set-lb">每日合计<small>四科之和</small></div>' +
-       '<div class="set-field"><b class="num" style="font-size:15px">' + hoursText(dailyTotalMin()) + '</b></div></div>';
+       '<div class="set-field"><b class="num" id="dayTotal" style="font-size:15px">' + hoursText(dailyTotalMin()) + '</b></div></div>';
   h += '</div></div>';
 
   h += '<div class="set-group"><h3>数据</h3><div class="set-list">';
@@ -825,20 +840,20 @@ function todoSheet(dk, id) {
         if (todosOf(dk).length >= MAX_TODOS) { toast('已满 ' + MAX_TODOS + ' 个'); return; }
         setTodos(dk, todosOf(dk).concat([{ id: uid(), text: v, done: false }]));
       }
-      save(); refresh(); closeSheet(); toast('已保存');
+      save(); closeSheet(); renderTodoViews(dk); toast('已保存');
     };
     var tg = root.querySelector('#tdToggle');
     if (tg) tg.onclick = function () {
       setTodos(dk, todosOf(dk).map(function (x) {
         return x.id === item.id ? { id: x.id, text: x.text, done: !x.done } : x;
       }));
-      save(); refresh(); closeSheet();
+      save(); closeSheet(); renderTodoViews(dk);
       toast(!item.done ? '已标记完成' : '已标记未完成');
     };
     var dl = root.querySelector('#tdDel');
     if (dl) dl.onclick = function () {
       setTodos(dk, todosOf(dk).filter(function (x) { return x.id !== item.id; }));
-      save(); refresh(); closeSheet(); toast('已删除');
+      save(); closeSheet(); renderTodoViews(dk); toast('已删除');
     };
   });
 }
@@ -1012,13 +1027,24 @@ function refresh() {
   renderTop();
   renderPage();
 }
+/* 事项变化后的局部刷新，避免整页重建 */
+function renderTodoViews(dk) {
+  if (curTab === 'today') { renderTodayTodo(); return; }
+  if (curTab === 'calendar') {
+    var dots = document.querySelector('.cal-cell[data-d="' + dk + '"] .dots');
+    if (dots) dots.innerHTML = calDotsHTML(dk);
+    renderDayDetail();
+    updateCalSub();
+  }
+}
 function toggleTodo(dk, id) {
   var list = todosOf(dk).map(function (x) {
     return x.id === id ? { id: x.id, text: x.text, done: !x.done } : x;
   });
   setTodos(dk, list);
-  save(); refresh();
+  save();
   var it = todosOf(dk).filter(function (x) { return x.id === id; })[0];
+  renderTodoViews(dk);
   toast(it ? (it.done ? '已完成' : '已取消完成') : '已删除');
 }
 
@@ -1066,17 +1092,28 @@ function bind() {
         trendSel = null;
         renderTrend();
         break;
-      case 'cal-day':
+      case 'cal-day': {
+        var prev = document.querySelector('.cal-cell.sel');
+        if (prev && prev !== el) prev.classList.remove('sel');
+        el.classList.add('sel');
         selDay = dk;
-        renderCalendar();
+        renderDayDetail();
         break;
+      }
       case 'exam-edit': examSheet(); break;
       case 'day-step': {
         var skey = el.getAttribute('data-key');
         var step = +el.getAttribute('data-d');
         var dm = state.settings.dailySubjectMin;
         dm[skey] = clamp((num(dm[skey]) || 0) + step, 0, 360);
-        save(); renderSettings(); renderTop();
+        save();
+        var bEl = document.querySelector('[data-dayval="' + skey + '"]');
+        if (bEl) bEl.textContent = planTimeText(dm[skey]);
+        var sEl = document.querySelector('[data-daysub="' + skey + '"]');
+        if (sEl) sEl.textContent = hoursText(dm[skey]);
+        var tEl = document.getElementById('dayTotal');
+        if (tEl) tEl.textContent = hoursText(dailyTotalMin());
+        renderTop();
         toast(SUBJECT_MAP[skey].name + ' ' + hoursText(dm[skey]));
         break;
       }
@@ -1116,6 +1153,8 @@ function bind() {
     if (k === 'examDate') {
       if (!el.value) return;
       s.examDate = el.value;
+    } else if (k === 'salaryGoal') {
+      s.salaryGoal = el.value.trim() || DEFAULT_SETTINGS.salaryGoal;
     } else if (k.charAt(0) === 't' && k.charAt(1) === '_') {
       var sk = k.slice(2);
       var v = num(el.value);
