@@ -9,14 +9,13 @@
 var STORE_KEY = 'ky_workbench_v1';
 
 var SUBJECTS = [
-  { key: 'politics', name: '政治',   short: '政',  color: '#FF9F0A', max: 100 },
-  { key: 'english',  name: '英语一', short: '英',  color: '#0A84FF', max: 100 },
-  { key: 'math',     name: '数学',   short: '数',  color: '#BF5AF2', max: 150 },
-  { key: 'cs408',    name: '408',    short: '408', color: '#30D158', max: 150 }
+  { key: 'politics', name: '政治',   short: '政',  color: '#E07B00', max: 100 },
+  { key: 'english',  name: '英语一', short: '英',  color: '#0A7CFF', max: 100 },
+  { key: 'math',     name: '数学',   short: '数',  color: '#9B4BE0', max: 150 },
+  { key: 'cs408',    name: '408',    short: '408', color: '#1FA84A', max: 150 }
 ];
 var SUBJECT_MAP = {};
 SUBJECTS.forEach(function (s) { SUBJECT_MAP[s.key] = s; });
-var FULL_TOTAL_MAX = 500;
 
 var DEFAULT_SETTINGS = {
   school: '杭州电子科技大学',
@@ -28,6 +27,13 @@ var DEFAULT_SETTINGS = {
   targets: { politics: 65, english: 65, math: 120, cs408: 105 }
 };
 var MAX_TODOS = 5; // 每天最多事项数
+/* 备考阶段：按「距考试天数」划分，改考试日期也自洽 */
+var PHASES = [
+  { name: '模考阶段', color: '#E5484D', to: 21 },
+  { name: '冲刺阶段', color: '#E07B00', to: 70 },
+  { name: '强化阶段', color: '#0A7CFF', to: 160 },
+  { name: '基础阶段', color: '#1FA84A', to: null }
+];
 
 /* ── 日期工具 ─────────────────────────────────────────── */
 function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -96,6 +102,7 @@ function seed() {
       { id: uid(), date: back(3),   type: 'single', subject: 'politics', score: 64 }
     ],
     study: {},
+    checks: {},
     todos: {}
   };
   st.todos[today()] = [
@@ -151,6 +158,7 @@ function load() {
     delete d.settings.dailyGoalMin;
     if (!Array.isArray(d.records)) d.records = [];
     if (!d.study || typeof d.study !== 'object') d.study = {};
+    if (!d.checks || typeof d.checks !== 'object') d.checks = {};
     d.todos = normTodos(d.todos);
     return d;
   } catch (e) {
@@ -180,6 +188,50 @@ function todosOf(dk) {
 }
 function todoCount() {
   return Object.keys(state.todos).reduce(function (a, k) { return a + state.todos[k].length; }, 0);
+}
+/* 每日每科完成打勾 */
+function checksOf(dk) { return state.checks[dk] || {}; }
+function toggleCheck(dk, key) {
+  var c = state.checks[dk] || (state.checks[dk] = {});
+  if (c[key]) delete c[key]; else c[key] = true;
+  if (!Object.keys(c).length) delete state.checks[dk];
+  save();
+}
+/* 当前备考阶段 */
+function currentPhase() {
+  var s = state.settings;
+  var left = dayDiff(today(), s.examDate);
+  if (left < 0) return { over: true, left: left, name: '已完成考试', color: '#E5484D', pct: 100 };
+  for (var i = 0; i < PHASES.length; i++) {
+    var p = PHASES[i];
+    if (p.to === null || left <= p.to) {
+      var prevTo = i > 0 ? PHASES[i - 1].to : null;
+      var next = i > 0 ? PHASES[i - 1] : null;
+      var span = p.to === null ? null : p.to - (prevTo || 0);
+      var into = p.to === null ? null : p.to - left;
+      return {
+        name: p.name, color: p.color, left: left, span: span, into: into,
+        pct: span ? clamp(into / span * 100, 0, 100) : 0,
+        next: next, daysToNext: next ? left - next.to : null
+      };
+    }
+  }
+}
+/* 最该补的一科：按「分数缺口 ÷ 该科满分」排序 */
+function weakestSubject() {
+  var worst = null;
+  SUBJECTS.forEach(function (sj) {
+    var l = latestSubject(sj.key);
+    var tg = num(state.settings.targets[sj.key]) || 0;
+    if (!l || tg <= 0) return;
+    var gap = Math.round((tg - l.value) * 10) / 10;
+    if (gap <= 0) return;
+    var ratio = gap / sj.max;
+    if (!worst || ratio > worst.ratio) {
+      worst = { key: sj.key, name: sj.name, color: sj.color, gap: gap, ratio: ratio };
+    }
+  });
+  return worst;
 }
 
 function sortedRecords() {
@@ -249,7 +301,7 @@ function smoothPath(pts) {
 function lineChart(points, opt) {
   opt = opt || {};
   var W = 320, H = 168, pl = 34, pr = 12, pt = 22, pb = 26;
-  var color = opt.color || '#0A84FF';
+  var color = opt.color || '#0A7CFF';
   var goal = opt.goal;
   var gid = 'g' + Math.random().toString(36).slice(2, 7);
 
@@ -286,16 +338,16 @@ function lineChart(points, opt) {
     var v = lo + (hi - lo) * (g / 2);
     var y = Y(v);
     svg += '<line x1="' + pl + '" y1="' + y.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + y.toFixed(1) +
-           '" stroke="rgba(255,255,255,.075)" stroke-width="1"/>';
-    svg += '<text x="' + (pl - 5) + '" y="' + (y + 3.4).toFixed(1) + '" text-anchor="end" font-size="9.5" fill="rgba(232,238,252,.34)">' +
+           '" stroke="rgba(43,42,51,.08)" stroke-width="1"/>';
+    svg += '<text x="' + (pl - 5) + '" y="' + (y + 3.4).toFixed(1) + '" text-anchor="end" font-size="9.5" fill="rgba(43,42,51,.42)">' +
            (Math.round(v * 10) / 10).toFixed(dec) + '</text>';
   }
   // 目标线
   if (goal !== undefined && goal !== null) {
     var gy = Y(goal);
     svg += '<line x1="' + pl + '" y1="' + gy.toFixed(1) + '" x2="' + (W - pr) + '" y2="' + gy.toFixed(1) +
-           '" stroke="rgba(255,159,10,.62)" stroke-width="1" stroke-dasharray="4 4"/>';
-    svg += '<text x="' + (W - pr) + '" y="' + (gy - 5).toFixed(1) + '" text-anchor="end" font-size="9.5" fill="rgba(255,159,10,.85)">目标 ' + goal + '</text>';
+           '" stroke="rgba(224,123,0,.6)" stroke-width="1" stroke-dasharray="4 4"/>';
+    svg += '<text x="' + (W - pr) + '" y="' + (gy - 5).toFixed(1) + '" text-anchor="end" font-size="9.5" fill="rgba(224,123,0,.95)">目标 ' + goal + '</text>';
   }
 
   svg += '<path d="' + area + '" fill="url(#' + gid + ')"/>';
@@ -308,7 +360,7 @@ function lineChart(points, opt) {
     var isSel = sel === i;
     if (n > 14 && !last && !isSel) return;
     svg += '<circle cx="' + xy[i][0].toFixed(1) + '" cy="' + xy[i][1].toFixed(1) + '" r="' + (isSel ? 5 : (last ? 4.2 : 2.8)) +
-           '" fill="#0b0e18" stroke="' + color + '" stroke-width="2"/>';
+           '" fill="#fff" stroke="' + color + '" stroke-width="2"/>';
   });
 
   // 选中标记
@@ -327,12 +379,12 @@ function lineChart(points, opt) {
   }
 
   // X 轴标签
-  svg += '<text x="' + pl + '" y="' + (H - 8) + '" font-size="9.5" fill="rgba(232,238,252,.34)">' + fmtShort(points[0].date) + '</text>';
+  svg += '<text x="' + pl + '" y="' + (H - 8) + '" font-size="9.5" fill="rgba(43,42,51,.42)">' + fmtShort(points[0].date) + '</text>';
   if (n > 1) {
-    svg += '<text x="' + (W - pr) + '" y="' + (H - 8) + '" text-anchor="end" font-size="9.5" fill="rgba(232,238,252,.34)">' + fmtShort(points[n - 1].date) + '</text>';
+    svg += '<text x="' + (W - pr) + '" y="' + (H - 8) + '" text-anchor="end" font-size="9.5" fill="rgba(43,42,51,.42)">' + fmtShort(points[n - 1].date) + '</text>';
   }
   if (n > 2) {
-    svg += '<text x="' + (W / 2 + 10) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9.5" fill="rgba(232,238,252,.26)">' + n + ' 次记录</text>';
+    svg += '<text x="' + (W / 2 + 10) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="9.5" fill="rgba(43,42,51,.3)">' + n + ' 次记录</text>';
   }
 
   // 点击热区
@@ -378,24 +430,26 @@ function sparkline(points, color) {
     '<stop offset="100%" stop-color="' + color + '" stop-opacity="0"/></linearGradient></defs>' +
     '<path d="' + area + '" fill="url(#' + gid + ')"/>' +
     '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2" stroke-linecap="round" opacity=".9"/>' +
-    '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3.6" fill="#0b0e18" stroke="' + color + '" stroke-width="2"/></svg>';
+    '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) + '" r="3.6" fill="#fff" stroke="' + color + '" stroke-width="2"/></svg>';
 }
 function tickSVG() {
   return '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function gearSVG() {
+  return '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
+    '<path d="M12 3.6v2.2M12 18.2v2.2M4.9 7.8l1.9 1.1M17.2 15.1l1.9 1.1M4.9 16.2l1.9-1.1M17.2 8.9l1.9-1.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 }
 function chevSVG() {
   return '<svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 /* ── 头部 ─────────────────────────────────────────────── */
-var TAB_META = {
-  today: ['今日', ''], scores: ['成绩', ''], calendar: ['日历', ''], settings: ['设置', '目标与偏好']
-};
+var TAB_TITLE = { today: '今日', scores: '成绩', calendar: '日历', settings: '设置' };
 function renderTop() {
   var s = state.settings, t = today();
   var left = dayDiff(t, s.examDate);
   document.getElementById('topMark').textContent = left >= 0 ? left : '0';
-  document.getElementById('topTitle').textContent = TAB_META[curTab][0];
+  document.getElementById('topTitle').textContent = TAB_TITLE[curTab];
   var sub = s.school + ' · ' + s.major;
   if (curTab === 'today') {
     sub = '目标 ' + targetSum() + ' 分 · 每日 ' + hoursShort(dailyTotalMin());
@@ -410,20 +464,12 @@ function renderTop() {
   document.getElementById('topSub').textContent = sub;
 }
 
-/* 距离目标日期的整月数（用于「约 N 个月」） */
-function monthsLeft(fromKey, toKey) {
-  var a = parseKey(fromKey), b = parseKey(toKey);
-  var m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
-  if (b.getDate() < a.getDate()) m--;
-  return Math.max(0, m);
-}
-
 /* ── 今日页 ───────────────────────────────────────────── */
 function renderCountdown() {
   var s = state.settings, t = today();
   var left = dayDiff(t, s.examDate);
   var weeks = Math.floor(left / 7), rest = left % 7;
-  var mon = monthsLeft(t, s.examDate);
+  var ph = currentPhase();
   var d = parseKey(s.examDate);
   var h = '<div class="card cd" data-act="exam-edit">';
   h += '<div class="cd-top">' +
@@ -432,8 +478,18 @@ function renderCountdown() {
        '</div>';
   h += '<div class="cd-days"><span class="n num">' + (left >= 0 ? left : 0) + '</span><span class="u">天</span>' +
        '<span class="cd-salary">目标年薪 <b>' + esc(s.salaryGoal) + '</b></span></div>';
-  h += '<div class="cd-meta"><span>剩余 <b>' + weeks + '</b> 周 <b>' + rest + '</b> 天</span>' +
-       '<span>' + esc(s.major) + ' · 约 <b>' + mon + '</b> 个月</span></div>';
+  h += '<div class="cd-meta"><span>' +
+       (left >= 0
+         ? '剩余 <b>' + weeks + '</b> 周 <b>' + rest + '</b> 天'
+         : '<b>考试已结束</b>') +
+       '</span>' +
+       '<span style="color:' + ph.color + '"><b style="color:inherit">' + ph.name + '</b>' +
+       (ph.over || ph.daysToNext === null ? '' : ' · 距' + ph.next.name.slice(0, 2) + ' <b style="color:inherit">' + ph.daysToNext + '</b> 天') +
+       '</span></div>';
+  if (!ph.over && ph.span) {
+    h += '<div class="bar stage" title="' + ph.name + '进度"><i style="width:' + ph.pct.toFixed(1) +
+         '%;background:linear-gradient(90deg,' + ph.color + ',' + ph.color + 'b3)"></i></div>';
+  }
   h += '</div>';
   document.getElementById('countdownCard').innerHTML = h;
 }
@@ -459,7 +515,7 @@ function renderGap() {
   h += '<div class="gap-badge' + (gap <= 0 ? ' good' : '') + '"><div class="k">' + (gap > 0 ? '还差' : '已超出') + '</div>' +
        '<div class="v num">' + Math.abs(gap) + '<small>分</small></div></div>';
   h += '</div>';
-  h += sparkline(totalSeries(), '#FF9F0A');
+  h += sparkline(totalSeries(), '#E07B00');
 
   h += '<div class="gap-grid" style="margin-top:13px">';
   SUBJECTS.forEach(function (sj) {
@@ -476,11 +532,17 @@ function renderGap() {
     h += '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;background:linear-gradient(90deg,' + sj.color + ',' + sj.color + '99);box-shadow:none"></i></div>';
     h += '</div>';
   });
-  h += '</div></div>';
+  h += '</div>';
+  var w = weakestSubject();
+  if (w) {
+    h += '<div class="gap-tip"><i style="background:' + w.color + '"></i>最该补 <b>' + w.name + '</b> · 还差 ' +
+         '<b>' + w.gap + '</b> 分（占该科满分 ' + Math.round(w.ratio * 100) + '%）</div>';
+  }
+  h += '</div>';
   document.getElementById('gapCard').innerHTML = h;
 }
 
-/* 每日每科目标时长 */
+/* 每日每科目标时长 + 今日完成打勾 */
 function planTimeText(min) {
   min = Math.max(0, Math.round(min));
   if (min >= 60) return Math.floor(min / 60) + 'h' + (min % 60 ? pad(min % 60) : '');
@@ -488,16 +550,23 @@ function planTimeText(min) {
 }
 function renderPlan() {
   var m = state.settings.dailySubjectMin;
+  var t = today(), ck = checksOf(t);
+  var doneN = SUBJECTS.filter(function (sj) { return ck[sj.key]; }).length;
   var h = '<div class="card">';
   h += '<div class="card-head"><h2 class="card-title">今日学习目标</h2>' +
-       '<span class="card-hint">合计 ' + hoursText(dailyTotalMin()) + ' · 点击调整</span></div>';
+       '<span class="card-hint">' + (doneN === SUBJECTS.length ? '今日已全部完成' : doneN + '/' + SUBJECTS.length + ' 完成') + '</span>' +
+       '<button class="icon-btn sm" data-act="go-settings" aria-label="调整时长">' + gearSVG() + '</button></div>';
   h += '<div class="plan-row">';
   SUBJECTS.forEach(function (sj) {
-    h += '<div class="plan-col" data-act="go-settings">' +
+    var done = !!ck[sj.key];
+    h += '<div class="plan-col' + (done ? ' done' : '') + '" data-act="plan-toggle" data-key="' + sj.key + '"' +
+         (done ? ' style="background:' + sj.color + '1F;border-color:' + sj.color + '52"' : '') + '>' +
          '<div class="pt"><i style="background:' + sj.color + '"></i>' + sj.name + '</div>' +
-         '<div class="pv num">' + planTimeText(num(m[sj.key]) || 0) + '</div></div>';
+         '<div class="pv num">' + planTimeText(num(m[sj.key]) || 0) + '</div>' +
+         '<span class="pc-tick" style="background:' + sj.color + '">' + tickSVG() + '</span></div>';
   });
-  h += '</div></div>';
+  h += '</div>';
+  h += '</div>';
   document.getElementById('planCard').innerHTML = h;
 }
 
@@ -550,7 +619,7 @@ function renderRecent() {
 
 function recordRowHTML(r) {
   var isFull = r.type === 'full';
-  var color = isFull ? '#0A84FF' : (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].color : '#8E8E93');
+  var color = isFull ? '#0A7CFF' : (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].color : '#8E8E93');
   var icon = isFull ? '总' : SUBJECT_MAP[r.subject].short;
   var title = isFull ? '完整测试' : SUBJECT_MAP[r.subject].name;
   var score, sub;
@@ -599,7 +668,7 @@ function renderGoalGrid() {
     var pct = tg > 0 && sc !== null ? clamp(sc / tg * 100, 0, 100) : 0;
     h += '<div class="gap-item" style="margin-bottom:8px" data-act="pick-subject" data-key="' + sj.key + '">';
     h += '<div class="t"><i style="background:' + sj.color + '"></i>' + sj.name +
-         '<span style="margin-left:auto;color:rgba(232,238,252,.4)">最近 ' + (sc === null ? '未记录' : sc + ' 分') +
+         '<span style="margin-left:auto;color:rgba(43,42,51,.42)">最近 ' + (sc === null ? '未记录' : sc + ' 分') +
          (l ? ' · ' + fmtShort(l.date) : '') + '</span></div>';
     h += '<div class="l"><span class="s num">' + (sc === null ? '—' : sc) + '<em>/ ' + tg + ' 目标</em></span>' +
          '<span class="d' + (g !== null && g <= 0 ? ' good' : '') + '">' +
@@ -624,7 +693,7 @@ function renderTrend() {
   var pts = seriesFor(trendKey);
   var isTotal = trendKey === 'total';
   var s = state.settings;
-  var color = isTotal ? '#FF9F0A' : SUBJECT_MAP[trendKey].color;
+  var color = isTotal ? '#E07B00' : SUBJECT_MAP[trendKey].color;
   var goal = isTotal ? targetSum() : num(s.targets[trendKey]);
   document.getElementById('trendChart').innerHTML = lineChart(pts, { color: color, goal: goal, sel: trendSel });
 
@@ -1081,6 +1150,13 @@ function bind() {
       case 'go-settings':
         closeSheet(); switchTab('settings');
         break;
+      case 'plan-toggle': {
+        var pk = el.getAttribute('data-key');
+        toggleCheck(dk, pk);
+        renderPlan();
+        toast(checksOf(dk)[pk] ? SUBJECT_MAP[pk].name + ' 已完成' : SUBJECT_MAP[pk].name + ' 取消完成');
+        break;
+      }
       case 'open-record': {
         var id = el.getAttribute('data-id');
         var rec = state.records.filter(function (x) { return x.id === id; })[0];
@@ -1126,7 +1202,7 @@ function bind() {
           '<button class="btn-primary" id="wpOk" style="background:linear-gradient(150deg,rgba(255,69,58,.95),rgba(255,120,110,.9));box-shadow:0 8px 22px rgba(255,69,58,.3)">确认清空</button>' +
           '<div class="btn-row" style="margin-top:9px"><button class="btn-ghost" id="wpCancel">取消</button></div>', function (root) {
             root.querySelector('#wpOk').onclick = function () {
-              state = { v: 1, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), records: [], study: {}, todos: {} };
+              state = { v: 1, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), records: [], study: {}, checks: {}, todos: {} };
               save(); refresh(); closeSheet(); toast('已清空');
             };
             root.querySelector('#wpCancel').onclick = closeSheet;
@@ -1178,6 +1254,24 @@ function bind() {
     }
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeSheet(); });
+  bindTopbar();
+}
+
+/* 顶栏：滚动前完全透明，滚动后浮出玻璃层（rAF 节流，避免滚动掉帧） */
+function bindTopbar() {
+  var bar = document.querySelector('.topbar');
+  if (!bar) return;
+  var ticking = false;
+  function update() {
+    ticking = false;
+    bar.classList.toggle('scrolled', window.scrollY > 6);
+  }
+  window.addEventListener('scroll', function () {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(update);
+  }, { passive: true });
+  update();
 }
 function shiftMonth(n) {
   var p = calView.split('-');
@@ -1214,6 +1308,8 @@ window.KY = {
   reload: function () { state = load(); refresh(); return state; },
   today: today, keyOf: keyOf, addDays: addDays, dayDiff: dayDiff,
   toggleTodo: toggleTodo, setTodos: setTodos, todosOf: todosOf, todoCount: todoCount,
+  toggleCheck: toggleCheck, checksOf: checksOf, currentPhase: currentPhase,
+  weakestSubject: weakestSubject, planTimeText: planTimeText, PHASES: PHASES,
   switchTab: switchTab, subjectSeries: subjectSeries, totalSeries: totalSeries,
   latestTotal: latestTotal, targetSum: targetSum, dailyTotalMin: dailyTotalMin,
   MAX_TODOS: MAX_TODOS, openSheet: openSheet, closeSheet: closeSheet,
