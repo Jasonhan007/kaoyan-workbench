@@ -10,16 +10,17 @@ var STORE_KEY = 'ky_workbench_v1';
 
 var SUBJECTS = [
   { key: 'politics', name: '政治',   short: '政',  color: '#E07B00', max: 100 },
-  { key: 'english',  name: '英语一', short: '英',  color: '#0A7CFF', max: 100 },
-  { key: 'math',     name: '数学',   short: '数',  color: '#9B4BE0', max: 150 },
-  { key: 'cs408',    name: '408',    short: '408', color: '#1FA84A', max: 150 }
+  { key: 'english',  name: '英语二', short: '英',  color: '#0A7CFF', max: 100 },
+  { key: 'math',     name: '数学二', short: '数',  color: '#9B4BE0', max: 150 },
+  // key 沿用 cs408 以兼容历史成绩数据，显示名按专业课展示
+  { key: 'cs408',    name: '专业课', short: '专',  color: '#1FA84A', max: 150 }
 ];
 var SUBJECT_MAP = {};
 SUBJECTS.forEach(function (s) { SUBJECT_MAP[s.key] = s; });
 
 var DEFAULT_SETTINGS = {
-  school: '杭州电子科技大学',
-  major: '11408',
+  school: '武汉理工大学',
+  major: '数二英二',
   salaryGoal: '20w',
   examDate: '2026-12-19',
   // 每日每科目标学习时长（分钟）
@@ -86,7 +87,7 @@ function seed() {
   var t = new Date();
   function back(n) { return keyOf(addDays(t, -n)); }
   var st = {
-    v: 1,
+    v: STATE_VERSION,
     settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
     records: [
       { id: uid(), date: back(100), type: 'single', subject: 'math', score: 88 },
@@ -106,19 +107,19 @@ function seed() {
     todos: {}
   };
   st.todos[today()] = [
-    { id: uid(), text: '数学 2019 真题第二遍 + 408 组成原理第 5 章', done: false },
-    { id: uid(), text: '英语一 2016 阅读精读 + 背 1 个 unit', done: false },
+    { id: uid(), text: '数学 2019 真题第二遍 + 专业课第 5 章', done: false },
+    { id: uid(), text: '英语二 2016 阅读精读 + 背 1 个 unit', done: false },
     { id: uid(), text: '政治马原第 4 章选择题 30 道', done: false }
   ];
   st.todos[keyOf(addDays(t, 1))] = [
-    { id: uid(), text: '408 计算机网络第 3 章 + 数学级数错题复盘', done: false }
+    { id: uid(), text: '专业课计算机网络第 3 章 + 数学级数错题复盘', done: false }
   ];
   st.todos[back(1)] = [{ id: uid(), text: '数学错题复盘：级数与微分方程', done: true }];
   st.todos[back(2)] = [
-    { id: uid(), text: '408 操作系统第二章', done: true },
+    { id: uid(), text: '专业课操作系统第二章', done: true },
     { id: uid(), text: '政治马原第 3 章 + 英语长难句 20 句', done: true }
   ];
-  st.todos[keyOf(addDays(t, 3))] = [{ id: uid(), text: '阶段模考：数学 + 408 全真模拟', done: false }];
+  st.todos[keyOf(addDays(t, 3))] = [{ id: uid(), text: '阶段模考：数学 + 专业课全真模拟', done: false }];
   st.todos['2026-12-19'] = [{ id: uid(), text: '考研初试 · 上午 8:30 政治 / 下午 2:00 英语', done: false }];
   return st;
 }
@@ -141,6 +142,20 @@ function normTodos(t) {
 
 /* ── 持久化 ───────────────────────────────────────────── */
 var state = null;
+var STATE_VERSION = 2;
+
+/* 一次性数据迁移：老存档自动跟上院校/考试科目的变更 */
+function migrate(d) {
+  var v = d.v || 1;
+  if (v < 2) {
+    var st = d.settings || {};
+    // 仅在仍是旧默认值时才替换，避免覆盖用户自己改过的院校
+    if (st.school === '杭州电子科技大学') st.school = '武汉理工大学';
+    if (st.major === '11408') st.major = '数二英二';
+    d.v = 2;
+  }
+  return d;
+}
 
 function load() {
   try {
@@ -148,6 +163,7 @@ function load() {
     if (!raw) return seed();
     var d = JSON.parse(raw);
     if (!d || typeof d !== 'object') return seed();
+    d = migrate(d);
     d.settings = Object.assign({}, DEFAULT_SETTINGS, d.settings || {});
     d.settings.targets = Object.assign({}, DEFAULT_SETTINGS.targets, (d.settings && d.settings.targets) || {});
     d.settings.dailySubjectMin = Object.assign({}, DEFAULT_SETTINGS.dailySubjectMin,
@@ -804,7 +820,7 @@ function renderSettings() {
   var h = '';
 
   h += '<div class="set-group"><h3>目标</h3><div class="set-list">';
-  h += '<div class="set-row" data-act="exam-edit"><div class="set-lb">目标院校 / 专业课</div>' +
+  h += '<div class="set-row" data-act="exam-edit"><div class="set-lb">目标院校 / 考试科目</div>' +
        '<div class="set-field"><span style="font-size:13.5px;color:var(--ink-2)">' + esc(s.school) + ' · ' + esc(s.major) + '</span>' + chevSVG() + '</div></div>';
   h += '<div class="set-row"><div class="set-lb">目标年薪<small>首页激励标语</small></div><div class="set-field">' +
        '<input type="text" data-set="salaryGoal" value="' + esc(s.salaryGoal) + '" placeholder="20w" style="width:82px"></div></div>';
@@ -887,7 +903,7 @@ function todoSheet(dk, id) {
   }
   var h = '<div class="sheet-title">' + (item ? '编辑事项' : '添加事项') + '</div>' +
     '<div class="sheet-sub">' + fmtMDW(dk) + ' · 已有 ' + list.length + '/' + MAX_TODOS + ' 个</div>' +
-    '<div class="field"><label>事项内容</label><textarea id="tdText" placeholder="例如：数学 2019 真题第二遍 + 408 组成原理第 5 章">' +
+    '<div class="field"><label>事项内容</label><textarea id="tdText" placeholder="例如：数学 2019 真题第二遍 + 专业课第 5 章">' +
     esc(item ? item.text : '') + '</textarea></div>' +
     '<button class="btn-primary" id="tdSave">保存</button>';
   if (item) {
@@ -1033,7 +1049,7 @@ function replaceRecord(obj) {
 function examSheet() {
   var s = state.settings;
   var h = '<div class="sheet-title">考试信息</div><div class="sheet-sub">改动会立即保存</div>' +
-    '<div class="field"><label>目标院校 / 专业课</label><div class="field-grid">' +
+    '<div class="field"><label>目标院校 / 考试科目</label><div class="field-grid">' +
     '<input type="text" id="exSchool" value="' + esc(s.school) + '"><input type="text" id="exMajor" value="' + esc(s.major) + '"></div></div>' +
     '<div class="field"><label>考试日期</label><input type="date" id="exDate" value="' + s.examDate + '"></div>' +
     '<button class="btn-primary" id="exSave">保存</button>' +
@@ -1202,7 +1218,7 @@ function bind() {
           '<button class="btn-primary" id="wpOk" style="background:linear-gradient(150deg,rgba(255,69,58,.95),rgba(255,120,110,.9));box-shadow:0 8px 22px rgba(255,69,58,.3)">确认清空</button>' +
           '<div class="btn-row" style="margin-top:9px"><button class="btn-ghost" id="wpCancel">取消</button></div>', function (root) {
             root.querySelector('#wpOk').onclick = function () {
-              state = { v: 1, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), records: [], study: {}, checks: {}, todos: {} };
+              state = { v: STATE_VERSION, settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)), records: [], study: {}, checks: {}, todos: {} };
               save(); refresh(); closeSheet(); toast('已清空');
             };
             root.querySelector('#wpCancel').onclick = closeSheet;
@@ -1291,6 +1307,7 @@ function boot() {
     save();
   } else {
     state = load();
+    save();          // 把迁移（版本升级、院校变更）结果落盘
   }
   if (!calView) calView = today().slice(0, 7);
   if (!selDay) selDay = today();
@@ -1305,7 +1322,7 @@ function boot() {
 /* 调试 / 自动化挂钩（不影响正常使用） */
 window.KY = {
   get state() { return state; }, save: save, load: load, seed: seed, refresh: refresh,
-  reload: function () { state = load(); refresh(); return state; },
+  reload: function () { state = load(); save(); refresh(); return state; },
   today: today, keyOf: keyOf, addDays: addDays, dayDiff: dayDiff,
   toggleTodo: toggleTodo, setTodos: setTodos, todosOf: todosOf, todoCount: todoCount,
   toggleCheck: toggleCheck, checksOf: checksOf, currentPhase: currentPhase,
