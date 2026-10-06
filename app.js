@@ -451,9 +451,17 @@ function sparkline(points, color) {
 function tickSVG() {
   return '<svg viewBox="0 0 24 24" width="15" height="15"><path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
-function gearSVG() {
-  return '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/>' +
-    '<path d="M12 3.6v2.2M12 18.2v2.2M4.9 7.8l1.9 1.1M17.2 15.1l1.9 1.1M4.9 16.2l1.9-1.1M17.2 8.9l1.9-1.1" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+/* 齿轮图标：8 齿精确轮廓（与标签栏「设置」图标同款） */
+var GEAR_PATH = 'M10.50,2.52 L13.50,2.52 L13.68,5.00 L15.76,5.86 L17.64,4.23 L19.77,6.36 L18.14,8.24 ' +
+  'L19.00,10.32 L21.48,10.50 L21.48,13.50 L19.00,13.68 L18.14,15.76 L19.77,17.64 L17.64,19.77 L15.76,18.14 ' +
+  'L13.68,19.00 L13.50,21.48 L10.50,21.48 L10.32,19.00 L8.24,18.14 L6.36,19.77 L4.23,17.64 L5.86,15.76 ' +
+  'L5.00,13.68 L2.52,13.50 L2.52,10.50 L5.00,10.32 L5.86,8.24 L4.23,6.36 L6.36,4.23 L8.24,5.86 L10.32,5.00 Z';
+function gearSVG(size) {
+  size = size || 16;
+  var sw = size <= 18 ? 2 : 1.8;   // 小尺寸略加粗，保持视觉重量
+  return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size + '">' +
+    '<path d="' + GEAR_PATH + '" fill="none" stroke="currentColor" stroke-width="' + sw + '" stroke-linejoin="round"/>' +
+    '<circle cx="12" cy="12" r="3.3" fill="none" stroke="currentColor" stroke-width="' + sw + '"/></svg>';
 }
 function chevSVG() {
   return '<svg class="chev" viewBox="0 0 24 24" width="16" height="16"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
