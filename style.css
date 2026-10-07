@@ -254,6 +254,9 @@ main{padding:0 0 calc(112px + var(--safe-b));}
 .tag{font-size:10px;padding:1.5px 6px;border-radius:6px;background:rgba(43,42,51,.07);
   color:var(--ink-2);font-weight:550;}
 .tag.full{background:rgba(10,124,255,.12);color:var(--accent-deep);}
+.tag.year{background:rgba(224,123,0,.12);color:#9A5B00;}
+.rec-note{margin-top:3px;font-size:11.5px;line-height:1.35;color:var(--ink-3);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
 .rec-score{text-align:right;flex:0 0 auto;}
 .rec-score .v{font-size:20px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
 .rec-score .v small{font-size:11px;color:var(--ink-3);font-weight:550;}
@@ -393,6 +396,20 @@ main{padding:0 0 calc(112px + var(--safe-b));}
 .sheet-sub{font-size:12.5px;color:var(--ink-3);margin-bottom:15px;}
 .field{margin-bottom:13px;}
 .field>label{display:block;font-size:12px;color:var(--ink-3);margin-bottom:7px;letter-spacing:.01em;}
+.lab-opt{font-weight:400;color:var(--ink-4);font-size:11px;margin-left:5px;}
+.field textarea.sm{min-height:56px;}
+/* 真题年份快选 */
+.year-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}
+.year-chip{padding:8px 11px;border-radius:11px;font-size:12.5px;font-weight:550;
+  background:#fff;border:.5px solid var(--stroke-2);color:var(--ink-2);box-shadow:var(--shadow-soft);
+  transition:transform .18s var(--ease),background .18s,border-color .18s;}
+.year-chip:active{transform:scale(.94);}
+.year-chip.on{background:rgba(10,124,255,.1);border-color:rgba(10,124,255,.42);color:var(--accent-deep);font-weight:650;}
+.field .year-row input[type=number]{width:100%;padding:9px 12px;text-align:center;border-radius:11px;
+  font-size:15px;font-weight:650;background:#fff;border:.5px solid var(--stroke-2);
+  box-shadow:var(--shadow-soft);font-variant-numeric:tabular-nums;
+  -webkit-user-select:text;user-select:text;}
+.field .year-row input[type=number]:focus{outline:none;border-color:rgba(10,124,255,.5);}
 .field input[type=text],.field input[type=date],.field input[type=number],.field textarea{
   width:100%;padding:13px 14px;border-radius:15px;font-size:16px;
   background:#fff;border:.5px solid var(--stroke-2);box-shadow:var(--shadow-soft);
