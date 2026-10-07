@@ -1,4 +1,4 @@
-/* ══════════════════════════════════════════════════════════
+﻿/* ══════════════════════════════════════════════════════════
    考研工作台 · 逻辑层
    数据全部存于 LocalStorage: ky_workbench_v1
    ══════════════════════════════════════════════════════════ */
@@ -94,12 +94,12 @@ function seed() {
       { id: uid(), date: back(88),  type: 'full', politics: 55, english: 55, math: 96, cs408: 90 },
       { id: uid(), date: back(72),  type: 'single', subject: 'english', score: 58 },
       { id: uid(), date: back(58),  type: 'single', subject: 'cs408', score: 86 },
-      { id: uid(), date: back(51),  type: 'full', politics: 58, english: 60, math: 106, cs408: 98 },
+      { id: uid(), date: back(51),  type: 'full', politics: 58, english: 60, math: 106, cs408: 98, year: 2024, note: '第一次完整模考' },
       { id: uid(), date: back(37),  type: 'single', subject: 'politics', score: 57 },
       { id: uid(), date: back(30),  type: 'single', subject: 'math', score: 112 },
       { id: uid(), date: back(23),  type: 'single', subject: 'english', score: 61 },
-      { id: uid(), date: back(16),  type: 'full', politics: 62, english: 63, math: 112, cs408: 101 },
-      { id: uid(), date: back(7),   type: 'single', subject: 'cs408', score: 104 },
+      { id: uid(), date: back(16),  type: 'full', politics: 62, english: 63, math: 112, cs408: 101, year: 2025, note: '数学概率大题全错，时间不够' },
+      { id: uid(), date: back(7),   type: 'single', subject: 'cs408', score: 104, year: 2024 },
       { id: uid(), date: back(3),   type: 'single', subject: 'politics', score: 64 }
     ],
     study: {},
@@ -267,6 +267,7 @@ function subjectSeries(key) {
       date: r.date,
       value: num(r.type === 'full' ? r[key] : r.score),
       full: r.type === 'full',
+      year: r.year || null,
       id: r.id
     };
   }).filter(function (p) { return p.value !== null; });
@@ -279,7 +280,7 @@ function totalSeries() {
       var v = num(r[s.key]);
       if (v === null) ok = false; else sum += v;
     });
-    return { date: r.date, value: ok ? Math.round(sum * 10) / 10 : null, id: r.id, full: true };
+    return { date: r.date, value: ok ? Math.round(sum * 10) / 10 : null, id: r.id, full: true, year: r.year || null };
   }).filter(function (p) { return p.value !== null; });
 }
 function latestOf(series) { return series.length ? series[series.length - 1] : null; }
@@ -384,7 +385,9 @@ function lineChart(points, opt) {
     var sx = xy[sel][0], sy = xy[sel][1];
     svg += '<line x1="' + sx.toFixed(1) + '" y1="' + sy.toFixed(1) + '" x2="' + sx.toFixed(1) + '" y2="' + (H - pb) +
            '" stroke="' + color + '" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>';
-    var label = String(points[sel].value) + (opt.unit || '') + '  ' + fmtShort(points[sel].date);
+    var label = String(points[sel].value) + (opt.unit || '') +
+      (points[sel].year ? '  ' + points[sel].year + ' 真题' : '') +
+      '  ' + fmtShort(points[sel].date);
     var tw = label.length * 6.1 + 14;
     var tx = clamp(sx - tw / 2, 2, W - tw - 2);
     var ty = Math.max(2, sy - 30);
@@ -659,8 +662,10 @@ function recordRowHTML(r) {
   return '<div class="rec-row" data-act="open-record" data-id="' + r.id + '">' +
     '<div class="rec-icon" style="background:linear-gradient(150deg,' + color + ',' + color + 'aa)">' + icon + '</div>' +
     '<div class="rec-main"><div class="rec-t">' + title +
-    (isFull ? '<span class="tag full">总分</span>' : '<span class="tag">单科</span>') + '</div>' +
-    '<div class="rec-s">' + fmtMDW(r.date).replace(/\s.*/, '') + ' · ' + sub + '</div></div>' +
+    (isFull ? '<span class="tag full">总分</span>' : '<span class="tag">单科</span>') +
+    (r.year ? '<span class="tag year">' + r.year + ' 真题</span>' : '') + '</div>' +
+    '<div class="rec-s">' + fmtMDW(r.date).replace(/\s.*/, '') + ' · ' + sub + '</div>' +
+    (r.note ? '<div class="rec-note">' + esc(r.note) + '</div>' : '') + '</div>' +
     '<div class="rec-score"><div class="v num">' + score + (isFull ? '<small>/500</small>' : '') + '</div>' +
     '<div class="d">' + fmtShort(r.date) + '</div></div></div>';
 }
@@ -952,6 +957,32 @@ function todoSheet(dk, id) {
 }
 
 /* 记录成绩 */
+/* 真题年份选择：最近 6 年快选 + 手动输入 */
+function yearField(r) {
+  var cur = new Date().getFullYear();
+  var y = num(r.year);
+  var h = '<div class="field"><label>真题年份<span class="lab-opt">选填 · 做真题时填</span></label><div class="year-row">';
+  for (var i = 0; i < 6; i++) {
+    var yy = cur - i;
+    h += '<button class="year-chip' + (y === yy ? ' on' : '') + '" data-y="' + yy + '">' + yy + '</button>';
+  }
+  h += '<input type="number" inputmode="numeric" id="rcYear" placeholder="其他" maxlength="4" value="' + (y === null ? '' : y) + '">';
+  h += '</div></div>';
+  return h;
+}
+function noteField(r) {
+  return '<div class="field"><label>备注<span class="lab-opt">选填</span></label>' +
+    '<textarea class="sm" id="rcNote" placeholder="例如：概率大题全错、时间不够没做完">' + esc(r.note || '') + '</textarea></div>';
+}
+/* 年份/备注读取与校验 */
+function readYear(root) {
+  var el = root.querySelector('#rcYear');
+  if (!el || el.value.trim() === '') return { ok: true, year: null };
+  var y = num(el.value);
+  if (y === null || Math.round(y) !== y || y < 1990 || y > 2100) return { ok: false, year: null };
+  return { ok: true, year: Math.round(y) };
+}
+
 function recordSheet(rec) {
   var editing = !!rec;
   var type = editing ? rec.type : 'full';
@@ -964,6 +995,7 @@ function recordSheet(rec) {
            '<button class="' + (type === 'single' ? 'on' : '') + '" data-t="single">单科成绩</button></div>';
     }
     h += '<div class="field"><label>日期</label><input type="date" id="rcDate" value="' + r.date + '"></div>';
+    h += yearField(r);
     if (type === 'full') {
       h += '<div class="field"><label>各科分数</label><div class="field-grid">';
       SUBJECTS.forEach(function (sj) {
@@ -979,9 +1011,10 @@ function recordSheet(rec) {
       });
       h += '</div></div>';
       h += '<div class="field"><label>分数</label><div class="field-inline">' +
-           '<input type="number" inputmode="decimal" id="rcScore" style="text-align:left;padding:13px 14px;border-radius:15px;background:rgba(255,255,255,.085);border:.5px solid rgba(255,255,255,.125);width:100%" placeholder="0" value="' +
+           '<input type="number" inputmode="decimal" id="rcScore" style="text-align:left;padding:13px 14px;border-radius:15px;background:#fff;border:.5px solid rgba(122,106,84,.16);width:100%" placeholder="0" value="' +
            (num(r.score) === null ? '' : r.score) + '"><span class="unit" id="rcMax">/' + (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].max : 100) + '</span></div></div>';
     }
+    h += noteField(r);
     h += '<button class="btn-primary" id="rcSave">保存记录</button>';
     if (editing) h += '<div class="btn-row" style="margin-top:9px"><button class="btn-ghost danger" id="rcDel">删除这条记录</button></div>';
     h += sheetFoot();
@@ -993,9 +1026,28 @@ function recordSheet(rec) {
     var el = root.querySelector('#rcSum');
     if (el) el.innerHTML = (Math.round(sum * 10) / 10) + '<small>/500</small>';
   }
+  /* 把当前输入写回 r，避免切换记录类型时丢失已填内容 */
+  function syncInputs(root) {
+    var dEl = root.querySelector('#rcDate');
+    if (dEl && dEl.value) r.date = dEl.value;
+    var yEl = root.querySelector('#rcYear');
+    if (yEl) r.year = yEl.value.trim() === '' ? null : num(yEl.value);
+    var nEl = root.querySelector('#rcNote');
+    if (nEl) r.note = nEl.value.trim();
+    var sEl = root.querySelector('#rcScore');
+    if (sEl) r.score = sEl.value === '' ? null : num(sEl.value);
+    root.querySelectorAll('input[data-k]').forEach(function (i) {
+      r[i.getAttribute('data-k')] = i.value === '' ? null : num(i.value);
+    });
+  }
   function mountFn(root) {
     root.querySelectorAll('[data-t]').forEach(function (b) {
-      b.onclick = function () { type = b.getAttribute('data-t'); r.type = type; redraw(); };
+      b.onclick = function () {
+        syncInputs(root);
+        type = b.getAttribute('data-t');
+        r.type = type;
+        redraw();
+      };
     });
     root.querySelectorAll('[data-s]').forEach(function (b) {
       b.onclick = function () {
@@ -1006,12 +1058,32 @@ function recordSheet(rec) {
         if (mx) mx.textContent = '/' + SUBJECT_MAP[r.subject].max;
       };
     });
+    // 年份快选：点击写入输入框并高亮，再点取消
+    root.querySelectorAll('.year-chip').forEach(function (b) {
+      b.onclick = function () {
+        var yi = root.querySelector('#rcYear');
+        var same = b.classList.contains('on');
+        root.querySelectorAll('.year-chip').forEach(function (x) { x.classList.remove('on'); });
+        if (same) { yi.value = ''; }
+        else { yi.value = b.getAttribute('data-y'); b.classList.add('on'); }
+      };
+    });
+    var yi2 = root.querySelector('#rcYear');
+    if (yi2) yi2.oninput = function () {
+      var v = yi2.value.trim();
+      root.querySelectorAll('.year-chip').forEach(function (x) {
+        x.classList.toggle('on', x.getAttribute('data-y') === v);
+      });
+    };
     root.querySelectorAll('input[data-k]').forEach(function (i) {
       i.oninput = function () { recalcSum(root); };
     });
     recalcSum(root);
     root.querySelector('#rcSave').onclick = function () {
       var date = root.querySelector('#rcDate').value || today();
+      var yInfo = readYear(root);
+      if (!yInfo.ok) { toast('年份请填 4 位数字，如 2025'); return; }
+      var note = (root.querySelector('#rcNote').value || '').trim();
       if (type === 'full') {
         var obj = { id: editing ? rec.id : uid(), date: date, type: 'full' };
         var filled = 0, sum = 0;
@@ -1023,6 +1095,9 @@ function recordSheet(rec) {
         });
         if (obj.__bad) { toast(obj.__bad + ' 超过满分'); return; }
         if (filled === 0) { toast('请至少填写一科分数'); return; }
+        delete obj.__bad;
+        if (yInfo.year !== null) obj.year = yInfo.year;
+        if (note) obj.note = note;
         if (editing) { replaceRecord(obj); } else { state.records.push(obj); }
         save(); refresh(); closeSheet();
         toast('总分 ' + (Math.round(sum * 10) / 10) + ' 已记录');
@@ -1032,6 +1107,8 @@ function recordSheet(rec) {
         var mx = SUBJECT_MAP[r.subject].max;
         if (sc > mx) { toast('超过该科满分 ' + mx); return; }
         var o2 = { id: editing ? rec.id : uid(), date: date, type: 'single', subject: r.subject, score: sc };
+        if (yInfo.year !== null) o2.year = yInfo.year;
+        if (note) o2.note = note;
         if (editing) { replaceRecord(o2); } else { state.records.push(o2); }
         save(); refresh(); closeSheet();
         toast(SUBJECT_MAP[r.subject].name + ' ' + sc + ' 分已记录');
