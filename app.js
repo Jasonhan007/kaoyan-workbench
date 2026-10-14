@@ -569,20 +569,61 @@ function renderGap() {
   document.getElementById('gapCard').innerHTML = h;
 }
 
-/* 每日每科目标时长 + 今日完成打勾 */
+/* 今日计划 = 每日学习目标 + 待办事项（合并为一张卡，把「目标差距」挤上首屏） */
 function planTimeText(min) {
   min = Math.max(0, Math.round(min));
   if (min >= 60) return Math.floor(min / 60) + 'h' + (min % 60 ? pad(min % 60) : '');
   return min + '分';
 }
+function plusSVG(size) {
+  size = size || 16;
+  return '<svg viewBox="0 0 24 24" width="' + size + '" height="' + size +
+    '"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+}
+/* 待办分区（首页与日历共用同一套计数：完成数/任务数） */
+function todoBlockHTML(dk, opts) {
+  opts = opts || {};
+  var list = todosOf(dk);
+  var doneN = list.filter(function (x) { return x.done; }).length;
+  var full = list.length >= MAX_TODOS;
+  var h = '<div class="plan-sep">';
+  if (opts.showTitle !== false) h += '<span class="ps-title">待办事项</span>';
+  h += '<span class="ps-date">' + fmtMD(dk) + (dk === today() ? ' · 今天' : '') + '</span>' +
+       '<span class="ps-count">' + doneN + '/' + list.length + ' 完成</span>';
+  if (full) {
+    h += '<span class="ps-full">已满 ' + MAX_TODOS + '</span>';
+  } else {
+    h += '<button class="icon-btn sm" data-act="todo-add" data-d="' + dk + '" aria-label="添加事项">' + plusSVG(15) + '</button>';
+  }
+  h += '</div>';
+  if (!list.length) {
+    h += '<div class="todo-row empty" data-act="todo-add" data-d="' + dk + '">' +
+         (opts.emptyText || '＋ 添加今天的计划') + '</div>';
+  } else {
+    h += '<div class="todo-list">';
+    list.forEach(function (it) {
+      h += '<div class="todo-row">' +
+        '<button class="tick' + (it.done ? ' on' : '') + '" data-act="todo-toggle" data-d="' + dk + '" data-id="' + it.id +
+        '" aria-label="完成">' + tickSVG() + '</button>' +
+        '<div class="todo-txt' + (it.done ? ' done' : '') + '" data-act="todo-edit" data-d="' + dk + '" data-id="' + it.id + '">' +
+        esc(it.text) + '</div>' +
+        '<span data-act="todo-edit" data-d="' + dk + '" data-id="' + it.id + '">' + chevSVG() + '</span>' +
+        '</div>';
+    });
+    h += '</div>';
+  }
+  return h;
+}
 function renderPlan() {
   var m = state.settings.dailySubjectMin;
   var t = today(), ck = checksOf(t);
-  var doneN = SUBJECTS.filter(function (sj) { return ck[sj.key]; }).length;
+  var sdone = SUBJECTS.filter(function (sj) { return ck[sj.key]; }).length;
+  var hint = sdone === SUBJECTS.length ? '今日已全部完成'
+    : (sdone === 0 ? '点格子打勾' : sdone + '/' + SUBJECTS.length + ' 完成');
   var h = '<div class="card">';
-  h += '<div class="card-head"><h2 class="card-title">今日学习目标</h2>' +
-       '<span class="card-hint">' + (doneN === SUBJECTS.length ? '今日已全部完成' : doneN + '/' + SUBJECTS.length + ' 完成') + '</span>' +
-       '<button class="icon-btn sm" data-act="go-settings" aria-label="调整时长">' + gearSVG() + '</button></div>';
+  h += '<div class="card-head"><h2 class="card-title">今日计划</h2>' +
+       '<span class="card-hint">' + hint + '</span>' +
+       '<button class="icon-btn sm" data-act="go-settings" aria-label="调整各科时长">' + gearSVG() + '</button></div>';
   h += '<div class="plan-row">';
   SUBJECTS.forEach(function (sj) {
     var done = !!ck[sj.key];
@@ -593,41 +634,9 @@ function renderPlan() {
          '<span class="pc-tick" style="background:' + sj.color + '">' + tickSVG() + '</span></div>';
   });
   h += '</div>';
+  h += todoBlockHTML(t);
   h += '</div>';
   document.getElementById('planCard').innerHTML = h;
-}
-
-/* 今日事项（每天最多 5 条） */
-function renderTodayTodo() {
-  var t = today(), list = todosOf(t);
-  var doneN = list.filter(function (x) { return x.done; }).length;
-  var h = '<div class="card">';
-  h += '<div class="card-head"><h2 class="card-title">今日事项</h2>' +
-       '<span class="card-hint">' + fmtMD(t) + ' · ' + doneN + '/' + list.length + ' 完成</span>';
-  if (list.length < MAX_TODOS) {
-    h += '<button class="icon-btn sm" data-act="todo-add" aria-label="添加事项">' +
-         '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>';
-  } else {
-    h += '<span class="card-hint">已满 ' + MAX_TODOS + '</span>';
-  }
-  h += '</div>';
-  if (!list.length) {
-    h += '<div class="todo-row empty" data-act="todo-add">＋ 添加今天的计划</div>';
-  } else {
-    h += '<div class="todo-list">';
-    list.forEach(function (it) {
-      h += '<div class="todo-row">';
-      h += '<button class="tick' + (it.done ? ' on' : '') + '" data-act="todo-toggle" data-id="' + it.id +
-           '" aria-label="完成">' + tickSVG() + '</button>';
-      h += '<div class="todo-txt' + (it.done ? ' done' : '') + '" data-act="todo-edit" data-id="' + it.id + '">' +
-           esc(it.text) + '</div>';
-      h += '<span data-act="todo-edit" data-id="' + it.id + '">' + chevSVG() + '</span>';
-      h += '</div>';
-    });
-    h += '</div>';
-  }
-  h += '</div>';
-  document.getElementById('todayTodoCard').innerHTML = h;
 }
 
 function renderRecent() {
@@ -659,7 +668,7 @@ function recordRowHTML(r) {
     score = r.score;
     sub = '单科成绩 · 满分 ' + (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].max : 100);
   }
-  return '<div class="rec-row" data-act="open-record" data-id="' + r.id + '">' +
+  return '<div class="rec-row' + (r.id === justAddedId ? ' fresh' : '') + '" data-act="open-record" data-id="' + r.id + '">' +
     '<div class="rec-icon" style="background:linear-gradient(150deg,' + color + ',' + color + 'aa)">' + icon + '</div>' +
     '<div class="rec-main"><div class="rec-t">' + title +
     (isFull ? '<span class="tag full">总分</span>' : '<span class="tag">单科</span>') +
@@ -672,8 +681,7 @@ function recordRowHTML(r) {
 
 function renderToday() {
   renderCountdown();
-  renderPlan();
-  renderTodayTodo();
+  renderPlan();      /* 含待办分区 */
   renderGap();
   renderRecent();
 }
@@ -681,6 +689,13 @@ function renderToday() {
 /* ── 成绩页 ───────────────────────────────────────────── */
 var trendKey = 'total';
 var trendSel = null;
+var justAddedId = null;   /* 新增记录的视觉强调 */
+var freshTimer = null;
+function markFresh(id) {
+  justAddedId = id;
+  clearTimeout(freshTimer);
+  freshTimer = setTimeout(function () { justAddedId = null; }, 1800);
+}
 
 function seriesFor(key) {
   return key === 'total' ? totalSeries() : subjectSeries(key);
@@ -799,9 +814,10 @@ function renderDayDetail() {
   var box = document.getElementById('dayDetail');
   if (!selDay) { box.innerHTML = ''; return; }
   var list = todosOf(selDay);
+  var doneN = list.filter(function (x) { return x.done; }).length;
   var h = '<div class="card">';
   h += '<div class="card-head"><h2 class="card-title">' + fmtMDW(selDay) + '</h2>' +
-       '<span class="card-hint">' + list.length + '/' + MAX_TODOS +
+       '<span class="card-hint">' + doneN + '/' + list.length + ' 完成' +
        (selDay === today() ? ' · 今天' : '') + '</span></div>';
   if (!list.length) {
     h += '<div class="empty-box">这一天还没有安排</div>';
@@ -938,7 +954,8 @@ function todoSheet(dk, id) {
         if (todosOf(dk).length >= MAX_TODOS) { toast('已满 ' + MAX_TODOS + ' 个'); return; }
         setTodos(dk, todosOf(dk).concat([{ id: uid(), text: v, done: false }]));
       }
-      save(); closeSheet(); renderTodoViews(dk); toast('已保存');
+      save(); closeSheet(); renderTodoViews(dk);
+      toast('已保存 · ' + todosOf(dk).length + '/' + MAX_TODOS + ' 条');
     };
     var tg = root.querySelector('#tdToggle');
     if (tg) tg.onclick = function () {
@@ -1098,9 +1115,9 @@ function recordSheet(rec) {
         delete obj.__bad;
         if (yInfo.year !== null) obj.year = yInfo.year;
         if (note) obj.note = note;
-        if (editing) { replaceRecord(obj); } else { state.records.push(obj); }
+        if (editing) { replaceRecord(obj); } else { state.records.push(obj); markFresh(obj.id); }
         save(); refresh(); closeSheet();
-        toast('总分 ' + (Math.round(sum * 10) / 10) + ' 已记录');
+        toast('总分 ' + (Math.round(sum * 10) / 10) + ' 已记录 · 第 ' + state.records.length + ' 条');
       } else {
         var sc = num(root.querySelector('#rcScore').value);
         if (sc === null) { toast('请输入分数'); return; }
@@ -1109,7 +1126,7 @@ function recordSheet(rec) {
         var o2 = { id: editing ? rec.id : uid(), date: date, type: 'single', subject: r.subject, score: sc };
         if (yInfo.year !== null) o2.year = yInfo.year;
         if (note) o2.note = note;
-        if (editing) { replaceRecord(o2); } else { state.records.push(o2); }
+        if (editing) { replaceRecord(o2); } else { state.records.push(o2); markFresh(o2.id); }
         save(); refresh(); closeSheet();
         toast(SUBJECT_MAP[r.subject].name + ' ' + sc + ' 分已记录');
       }
@@ -1146,7 +1163,7 @@ function examSheet() {
       state.settings.school = sch || DEFAULT_SETTINGS.school;
       state.settings.major = mj || DEFAULT_SETTINGS.major;
       state.settings.examDate = root.querySelector('#exDate').value || DEFAULT_SETTINGS.examDate;
-      save(); refresh(); closeSheet(); toast('已保存');
+      save(); refresh(); closeSheet(); toast('考试信息已更新');
     };
   });
 }
@@ -1178,6 +1195,8 @@ var curTab = 'today';
 
 function switchTab(name) {
   curTab = name;
+  /* 进日历始终回到今天，保证与首页「今日」看到同一份数据 */
+  if (name === 'calendar') selDay = today();
   Array.prototype.forEach.call(document.querySelectorAll('.page'), function (p) {
     p.classList.toggle('active', p.id === 'page-' + name);
   });
@@ -1199,13 +1218,19 @@ function refresh() {
 }
 /* 事项变化后的局部刷新，避免整页重建 */
 function renderTodoViews(dk) {
-  if (curTab === 'today') { renderTodayTodo(); return; }
+  if (curTab === 'today') { renderPlan(); return; }
   if (curTab === 'calendar') {
     var dots = document.querySelector('.cal-cell[data-d="' + dk + '"] .dots');
     if (dots) dots.innerHTML = calDotsHTML(dk);
     renderDayDetail();
     updateCalSub();
   }
+}
+/* 统一的进度文案：完成数/任务数 */
+function todoProgressText(dk) {
+  var list = todosOf(dk);
+  var done = list.filter(function (x) { return x.done; }).length;
+  return done + '/' + list.length + ' 项';
 }
 function toggleTodo(dk, id) {
   var list = todosOf(dk).map(function (x) {
@@ -1215,7 +1240,7 @@ function toggleTodo(dk, id) {
   save();
   var it = todosOf(dk).filter(function (x) { return x.id === id; })[0];
   renderTodoViews(dk);
-  toast(it ? (it.done ? '已完成' : '已取消完成') : '已删除');
+  toast(it ? (it.done ? '已完成 ' + todoProgressText(dk) : '已取消 · ' + todoProgressText(dk)) : '已删除');
 }
 
 function bind() {
