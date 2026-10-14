@@ -1,4 +1,4 @@
-/* ═══════════════════════════════════════════════════════════
+﻿/* ═══════════════════════════════════════════════════════════
    考研工作台 · Liquid Glass（浅色 · 柔和暖白 + 彩色光斑）
    设计锚点：iOS 26/27 浅色 Control Center 玻璃层叠在暖白纸感底上
    性能约定：环境光不叠加 blur 滤镜、fixed 元素不用 drop-shadow、
@@ -34,7 +34,7 @@
   --r-pill:999px;
 
   --pad:17px;
-  --gap:14px;
+  --gap:13px;
 
   --ease:cubic-bezier(.32,.72,0,1);
   --ease-soft:cubic-bezier(.4,0,.2,1);
@@ -148,7 +148,7 @@ main{padding:0 0 calc(112px + var(--safe-b));}
 
 /* 每日每科目标时长（一行四列） */
 .plan-row{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;}
-.plan-col{position:relative;padding:10px 4px 9px;border-radius:16px;text-align:center;
+.plan-col{position:relative;padding:9px 4px 8px;border-radius:16px;text-align:center;
   background:rgba(255,255,255,.72);border:.5px solid var(--stroke-2);
   transition:transform .18s var(--ease),background .18s,border-color .18s;}
 .plan-col:active{transform:scale(.95);background:var(--glass-3);}
@@ -160,7 +160,19 @@ main{padding:0 0 calc(112px + var(--safe-b));}
   display:grid;place-items:center;opacity:0;transform:scale(.5);
   transition:opacity .22s var(--ease),transform .22s var(--ease);}
 .plan-col .pc-tick svg{width:9px;height:9px;}
-.plan-col.done .pc-tick{opacity:1;transform:none;}
+.plan-col.done .pc-tick{opacity:1;transform:none;animation:tickPop .34s var(--ease);}
+
+/* 今日计划卡内：学习目标 → 待办事项 的分区分隔 */
+.plan-sep{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:11px;
+  border-top:.5px solid var(--line);}
+.ps-title{font-size:13.5px;font-weight:650;letter-spacing:-.01em;}
+.ps-date{font-size:11.5px;color:var(--ink-3);white-space:nowrap;}
+.ps-count{margin-left:auto;font-size:12px;font-weight:650;color:var(--ink-2);font-variant-numeric:tabular-nums;}
+.ps-full{font-size:11.5px;color:var(--ink-3);padding:4px 8px;background:rgba(43,42,51,.05);border-radius:8px;}
+.plan-sep .icon-btn.sm{width:30px;height:30px;flex-basis:30px;}
+/* 勾选确认的弹性反馈 */
+@keyframes tickPop{0%{transform:scale(.55)}55%{transform:scale(1.2)}100%{transform:scale(1)}}
+.tick.on{animation:tickPop .34s var(--ease);}
 
 /* ── 倒计时 ─────────────────────────────────────────────── */
 .cd{padding-bottom:15px;}
@@ -168,12 +180,12 @@ main{padding:0 0 calc(112px + var(--safe-b));}
   background:radial-gradient(circle,rgba(90,160,255,.16),rgba(90,160,255,0) 70%);pointer-events:none;}
 .cd::after{content:'';position:absolute;right:-46px;top:-64px;width:200px;height:200px;border-radius:50%;
   background:radial-gradient(circle,rgba(255,190,60,.18),rgba(255,190,60,0) 70%);pointer-events:none;}
-.cd-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:7px;}
+.cd-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:6px;}
 .cd-school{font-size:21px;font-weight:700;letter-spacing:-.028em;line-height:1.2;
   background:linear-gradient(180deg,#1F1E27,#4A4757);
   -webkit-background-clip:text;background-clip:text;color:transparent;}
 .cd-date{font-size:11.5px;color:var(--ink-3);white-space:nowrap;}
-.cd-days{display:flex;align-items:baseline;gap:9px;margin:2px 0 5px;}
+.cd-days{display:flex;align-items:baseline;gap:9px;margin:2px 0 4px;}
 .cd-salary{margin-left:auto;align-self:center;display:inline-flex;align-items:baseline;gap:4px;
   padding:5px 11px;border-radius:999px;font-size:11.5px;font-weight:650;color:#9A5B00;
   background:linear-gradient(140deg,rgba(255,196,0,.20),rgba(255,140,0,.12));
@@ -190,7 +202,7 @@ main{padding:0 0 calc(112px + var(--safe-b));}
 .bar>i{display:block;height:100%;border-radius:99px;
   background:linear-gradient(90deg,#0A7CFF,#5AC8FA);
   transition:width 1.1s var(--ease);}
-.bar.stage{height:5px;margin-top:9px;background:rgba(43,42,51,.07);}
+.bar.stage{height:5px;margin-top:7px;background:rgba(43,42,51,.07);}
 
 /* ── 目标差距 ───────────────────────────────────────────── */
 .gap-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:14px;}
@@ -223,8 +235,8 @@ main{padding:0 0 calc(112px + var(--safe-b));}
 .gap-tip b{color:var(--ink);font-weight:700;}
 
 /* ── 今日事项 ───────────────────────────────────────────── */
-.todo-list{display:flex;flex-direction:column;gap:7px;}
-.todo-row{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:16px;
+.todo-list{display:flex;flex-direction:column;gap:6px;}
+.todo-row{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:16px;
   background:rgba(255,255,255,.72);border:.5px solid var(--stroke-2);
   transition:transform .18s var(--ease),background .18s;}
 .todo-row:active{transform:scale(.985);background:var(--glass-3);}
@@ -235,7 +247,7 @@ main{padding:0 0 calc(112px + var(--safe-b));}
 .tick svg{width:13px;height:13px;opacity:0;transform:scale(.5);transition:all .25s var(--ease);}
 .tick.on{background:var(--green);border-color:var(--green);box-shadow:0 3px 10px rgba(31,168,74,.3);}
 .tick.on svg{opacity:1;transform:none;}
-.todo-txt{flex:1;min-width:0;font-size:14.5px;line-height:1.35;word-break:break-word;}
+.todo-txt{flex:1;min-width:0;font-size:15px;line-height:1.4;word-break:break-word;}
 .todo-txt.done{color:var(--ink-3);text-decoration:line-through;}
 .chev{color:var(--ink-3);flex:0 0 auto;}
 
@@ -245,6 +257,13 @@ main{padding:0 0 calc(112px + var(--safe-b));}
   border:.5px solid var(--stroke-2);margin-bottom:8px;
   transition:transform .2s var(--ease),background .2s;}
 .rec-row:active{transform:scale(.985);background:var(--glass-3);}
+/* 新增记录的强调动画（高亮扫过一次后淡出） */
+@keyframes rowFresh{
+  0%{background-color:rgba(10,124,255,.2);box-shadow:0 0 0 1.5px rgba(10,124,255,.45);transform:translateY(-8px);opacity:.25;}
+  40%{background-color:rgba(10,124,255,.14);transform:translateY(0);opacity:1;}
+  100%{background-color:rgba(255,255,255,0);box-shadow:0 0 0 1.5px rgba(10,124,255,0);transform:none;opacity:1;}
+}
+.rec-row.fresh{animation:rowFresh 1.6s var(--ease) both;}
 .rec-icon{width:36px;height:36px;flex:0 0 36px;border-radius:12px;display:grid;place-items:center;
   font-size:12px;font-weight:650;color:#fff;letter-spacing:-.02em;
   box-shadow:inset 0 1px 0 rgba(255,255,255,.35);}
