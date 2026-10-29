@@ -1,4 +1,4 @@
-﻿/* ══════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    考研工作台 · 逻辑层
    数据全部存于 LocalStorage: ky_workbench_v1
    ══════════════════════════════════════════════════════════ */
@@ -73,6 +73,12 @@ function num(v) {
   var n = Number(v);
   if (!isFinite(n)) return null;
   return Math.round(n * 10) / 10;
+}
+/* 有效成绩：必须是数字，且在 0 ~ 该科满分之间；越界/负数视为无效，不参与统计 */
+function scoreOf(key, v) {
+  var n = num(v);
+  if (n === null || !SUBJECT_MAP[key]) return null;
+  return n >= 0 && n <= SUBJECT_MAP[key].max ? n : null;
 }
 function esc(s) {
   return String(s === null || s === undefined ? '' : s)
@@ -193,6 +199,11 @@ function targetSum() {
   SUBJECTS.forEach(function (s) { sum += num(t[s.key]) || 0; });
   return Math.round(sum * 10) / 10;
 }
+/* 顶栏副标题里的目标文案：没设目标时不要写成「目标 0 分」 */
+function goalSubText() {
+  var tg = targetSum();
+  return (tg > 0 ? '目标 ' + tg + ' 分' : '未设置目标') + ' · 每日 ' + hoursShort(dailyTotalMin());
+}
 /* 每日目标总时长 = 各科之和 */
 function dailyTotalMin() {
   var m = state.settings.dailySubjectMin, sum = 0;
@@ -258,45 +269,155 @@ function sortedRecords() {
 function fullTests() {
   return sortedRecords().filter(function (r) { return r.type === 'full'; });
 }
-/* 某科目：单科记录 + 完整测试中的该科成绩 */
+/* 某科目：单科记录 + 完整测试中的该科成绩（越界分数按无效处理） */
 function subjectSeries(key) {
   return sortedRecords().filter(function (r) {
     return r.type === 'full' || r.subject === key;
   }).map(function (r) {
     return {
       date: r.date,
-      value: num(r.type === 'full' ? r[key] : r.score),
+      value: scoreOf(key, r.type === 'full' ? r[key] : r.score),
       full: r.type === 'full',
       year: r.year || null,
       id: r.id
     };
   }).filter(function (p) { return p.value !== null; });
 }
-/* 总分：只取完整测试 */
-function totalSeries() {
-  return fullTests().map(function (r) {
-    var sum = 0, ok = true;
-    SUBJECTS.forEach(function (s) {
-      var v = num(r[s.key]);
-      if (v === null) ok = false; else sum += v;
-    });
-    return { date: r.date, value: ok ? Math.round(sum * 10) / 10 : null, id: r.id, full: true, year: r.year || null };
-  }).filter(function (p) { return p.value !== null; });
-}
+/* ── 单科统计 / 已记录科目 ─────────────────────────────── */
+function round1(v) { return Math.round(v * 10) / 10; }
 function latestOf(series) { return series.length ? series[series.length - 1] : null; }
 function latestSubject(key) { return latestOf(subjectSeries(key)); }
 
-/* 最近一次总分：优先完整测试，否则用各科最近成绩组合估算 */
+/* 已记录科目 = 至少有一条有效成绩（单科记录，或完整测试中的该科分数）的科目数 */
+function recordedCount() {
+  var n = 0;
+  SUBJECTS.forEach(function (sj) { if (latestSubject(sj.key)) n++; });
+  return n;
+}
+/* 单科目标：未填 / 填 0 / 非法都视为「未设置」，不参与差距计算 */
+function subjectTarget(key) {
+  var t = num(state.settings.targets[key]);
+  return t === null || t <= 0 ? null : t;
+}
+/* 单科：最近成绩、该科目标、差距、完成度 */
+function subjectStat(key) {
+  var sj = SUBJECT_MAP[key];
+  var l = latestSubject(key);
+  var tg = subjectTarget(key);
+  var st = { key: key, sj: sj, has: !!l, score: null, date: null, target: tg, gap: null, pct: 0 };
+  if (!l) return st;
+  st.score = l.value;
+  st.date = l.date;
+  if (tg !== null) {
+    st.gap = round1(tg - l.value);
+    st.pct = clamp(l.value / tg * 100, 0, 100);
+  } else {
+    st.pct = clamp(l.value / sj.max * 100, 0, 100);
+  }
+  return st;
+}
+/* 最近一次成绩所属科目：单科取该科；完整测试取距目标缺口最大的一科（最需要关注） */
+function latestScoredSubject() {
+  var recs = sortedRecords();
+  for (var i = recs.length - 1; i >= 0; i--) {
+    var r = recs[i];
+    if (r.type === 'single') {
+      var v = scoreOf(r.subject, r.score);
+      if (v !== null) return { key: r.subject, value: v, date: r.date, id: r.id };
+    } else {
+      var pick = null;
+      SUBJECTS.forEach(function (sj) {
+        var sv = scoreOf(sj.key, r[sj.key]);
+        if (sv === null) return;
+        var tg = subjectTarget(sj.key);
+        var gap = tg === null ? -1e9 : tg - sv;
+        if (!pick || gap > pick.gap) pick = { key: sj.key, value: sv, date: r.date, id: r.id, gap: gap };
+      });
+      if (pick) return pick;
+    }
+  }
+  return null;
+}
+/* 单科差距文案：英语二最近成绩 62/100，距离该科目标还差 18 分 */
+function subjectGapSentence(key) {
+  var st = subjectStat(key);
+  if (!st.has) return st.sj.name + '还没有成绩记录';
+  var head = st.sj.name + '最近成绩 ' + st.score + '/' + st.sj.max;
+  if (st.target === null) return head + '，该科还未设置目标';
+  if (st.gap > 0) return head + '，距离该科目标还差 ' + st.gap + ' 分';
+  if (st.gap < 0) return head + '，已超过该科目标 ' + Math.abs(st.gap) + ' 分';
+  return head + '，已达到该科目标';
+}
+/* 页头 / 成绩页副标题：已记录科目 k/4，以及当前最该看的那一科或总分 */
+function scoreSummaryText() {
+  var n = recordedCount();
+  var head = '已记录科目 ' + n + '/' + SUBJECTS.length;
+  if (!n) return head + '，还没有成绩记录，先记录一科试试';
+  var lt = latestTotal();
+  var target = targetSum();
+  if (lt) {
+    if (target > 0) {
+      var g = round1(target - lt.value);
+      return head + '，最近总分 ' + lt.value + '/500，' +
+        (g > 0 ? '距离目标总分还差 ' + g + ' 分' : (g < 0 ? '已超过目标总分 ' + Math.abs(g) + ' 分' : '已达到目标总分'));
+    }
+    return head + '，最近总分 ' + lt.value + '/500 · 未设置目标总分';
+  }
+  var raw = latestScoredSubject();
+  return raw ? head + '，' + subjectGapSentence(raw.key) : head;
+}
+
+/* 总分轨迹：
+   · 完整测试（四科齐全）→ 真实总分点
+   · 四科都有成绩之后的每次更新 → 四科最近成绩合计（估算点）
+   四科不满时没有任何总分点，避免拿单科成绩去比 500 分总分目标 */
+function totalSeries() {
+  if (recordedCount() < SUBJECTS.length) return [];
+  var recs = sortedRecords();
+  var latest = {}, known = 0, out = [];
+  function addPoint(p) {
+    var last = out[out.length - 1];
+    if (last && last.date === p.date && Math.abs(last.value - p.value) < 0.05) {
+      if (p.full) out[out.length - 1] = p;   // 同一天的真实总分优先于合计
+      return;
+    }
+    out.push(p);
+  }
+  recs.forEach(function (r) {
+    if (r.type === 'full') {
+      var sum = 0, ok = true;
+      SUBJECTS.forEach(function (s) {
+        var v = scoreOf(s.key, r[s.key]);
+        if (v === null) ok = false; else sum += v;
+      });
+      SUBJECTS.forEach(function (s) {
+        var v = scoreOf(s.key, r[s.key]);
+        if (v !== null) { if (latest[s.key] === undefined) known++; latest[s.key] = v; }
+      });
+      if (ok) {
+        addPoint({ date: r.date, value: round1(sum), full: true, estimated: false, id: r.id, year: r.year || null });
+        return;
+      }
+    } else {
+      var sv = scoreOf(r.subject, r.score);
+      if (sv === null) return;
+      if (latest[r.subject] === undefined) known++;
+      latest[r.subject] = sv;
+    }
+    if (known === SUBJECTS.length) {
+      var total = 0;
+      SUBJECTS.forEach(function (s) { total += latest[s.key]; });
+      addPoint({ date: r.date, value: round1(total), full: false, estimated: true, id: r.id });
+    }
+  });
+  return out;
+}
+/* 最近总分：只有四科都有成绩才返回，否则 null（不拿残缺数据比总分目标） */
 function latestTotal() {
   var ts = totalSeries();
-  if (ts.length) return { value: ts[ts.length - 1].value, date: ts[ts.length - 1].date, estimated: false };
-  var sum = 0, count = 0, lastDate = null;
-  SUBJECTS.forEach(function (s) {
-    var l = latestSubject(s.key);
-    if (l) { sum += l.value; count++; if (!lastDate || l.date > lastDate) lastDate = l.date; }
-  });
-  if (!count) return null;
-  return { value: Math.round(sum * 10) / 10, date: lastDate, estimated: count < 4 };
+  if (!ts.length) return null;
+  var last = ts[ts.length - 1];
+  return { value: last.value, date: last.date, estimated: !!last.estimated, full: !!last.full };
 }
 
 /* ── 图表：折线（SVG） ────────────────────────────────── */
@@ -323,7 +444,7 @@ function lineChart(points, opt) {
   var gid = 'g' + Math.random().toString(36).slice(2, 7);
 
   if (!points.length) {
-    return '<div class="empty-box">还没有数据<br>点下方按钮记录第一次成绩</div>';
+    return '<div class="empty-box">' + (opt.empty || '还没有数据<br>点下方按钮记录第一次成绩') + '</div>';
   }
 
   var values = points.map(function (p) { return p.value; });
@@ -479,14 +600,23 @@ function renderTop() {
   document.getElementById('topTitle').textContent = TAB_TITLE[curTab];
   var sub = s.school + ' · ' + s.major;
   if (curTab === 'today') {
-    sub = '目标 ' + targetSum() + ' 分 · 每日 ' + hoursShort(dailyTotalMin());
+    sub = goalSubText();
   } else if (curTab === 'scores') {
-    var lt = latestTotal();
-    sub = lt ? '最近总分 ' + lt.value + ' / 目标 ' + targetSum() : '还没有成绩记录';
+    var n = recordedCount(), lt = latestTotal();
+    if (!n) sub = '还没有成绩记录';
+    else if (lt) {
+      var tg = targetSum();
+      sub = '最近总分 ' + lt.value + (tg > 0 ? ' / 目标 ' + tg : ' / 500 · 未设置目标总分');
+    } else {
+      var raw = latestScoredSubject();
+      var st = raw ? subjectStat(raw.key) : null;
+      sub = '已记录科目 ' + n + '/' + SUBJECTS.length +
+        (st ? ' · ' + st.sj.name + ' ' + st.score + '/' + st.sj.max : '');
+    }
   } else if (curTab === 'calendar') {
     sub = fmtMDW(t);
   } else if (curTab === 'settings') {
-    sub = '目标 ' + targetSum() + ' 分 · 每日 ' + hoursShort(dailyTotalMin());
+    sub = goalSubText();
   }
   document.getElementById('topSub').textContent = sub;
 }
@@ -521,47 +651,99 @@ function renderCountdown() {
   document.getElementById('countdownCard').innerHTML = h;
 }
 
+/* 四科记录进度：科目胶囊，已记录的点亮，点击可跳到该科曲线 */
+function subjectProgressHTML() {
+  var h = '<div class="subj-progress">';
+  SUBJECTS.forEach(function (sj) {
+    var st = subjectStat(sj.key);
+    h += '<span class="sp-chip' + (st.has ? ' on' : '') + '" data-act="pick-subject" data-key="' + sj.key + '">' +
+         '<i style="border-color:' + sj.color + ';background:' + (st.has ? sj.color : 'transparent') + '"></i>' +
+         '<span>' + sj.name + '</span></span>';
+  });
+  h += '</div>';
+  return h;
+}
+/* 单科差距徽标：还差 / 已超出 / 已达成 / 未设目标 */
+function gapBadgeHTML(st) {
+  var cls = '', k = '目标', v = '<b>未设置</b>';
+  if (st.gap !== null) {
+    if (st.gap > 0) { k = '还差'; v = st.gap + '<small>分</small>'; }
+    else if (st.gap < 0) { k = '已超出'; v = Math.abs(st.gap) + '<small>分</small>'; cls = ' good'; }
+    else { k = '已达成'; v = '<b>目标</b>'; cls = ' good'; }
+  }
+  return '<div class="gap-badge' + cls + '"><div class="k">' + k + '</div><div class="v num">' + v + '</div></div>';
+}
+/* 四科明细网格 */
+function subjectGridHTML() {
+  var h = '';
+  SUBJECTS.forEach(function (sj) {
+    var st = subjectStat(sj.key);
+    var gapTxt = !st.has ? '未记录' : (st.gap === null ? '未设目标' :
+      (st.gap > 0 ? '差 ' + st.gap : (st.gap < 0 ? '超 ' + Math.abs(st.gap) : '已达')));
+    h += '<div class="gap-item" data-act="pick-subject" data-key="' + sj.key + '">';
+    h += '<div class="t"><i style="background:' + sj.color + '"></i>' + sj.name + '</div>';
+    h += '<div class="l"><span class="s num">' + (st.has ? st.score : '—') + '<em>/' + sj.max + '</em></span>' +
+         '<span class="d' + (st.gap !== null && st.gap <= 0 ? ' good' : '') + '">' + gapTxt + '</span></div>';
+    h += '<div class="bar"><i style="width:' + st.pct.toFixed(1) + '%;background:linear-gradient(90deg,' +
+         sj.color + ',' + sj.color + '99);box-shadow:none"></i></div>';
+    h += '</div>';
+  });
+  return h;
+}
+
 function renderGap() {
-  var s = state.settings, lt = latestTotal();
+  var n = recordedCount();
+  var lt = latestTotal();
   var target = targetSum();
   var h = '<div class="card">';
-  h += '<div class="card-head"><h2 class="card-title">目标差距</h2><span class="card-hint">' +
-       (lt ? (lt.estimated ? '各科最近成绩合计' : '最近一次完整测试 ' + fmtShort(lt.date)) : '暂无数据') + '</span></div>';
+  h += '<div class="card-head"><h2 class="card-title">目标差距</h2>' +
+       '<span class="card-hint">已记录科目 ' + n + '/' + SUBJECTS.length + '</span></div>';
 
-  if (!lt) {
-    h += '<div class="empty-box">还没有成绩记录<br>去「成绩」页记录一次，就能看到距离 ' + target + ' 分还差多少</div><div class="btn-row">' +
-         '<button class="btn-ghost" data-act="go-scores">去记录成绩</button></div></div>';
+  if (!n) {
+    h += '<div class="empty-box">还没有成绩记录<br>先记录一科，看看离该科目标还差多少</div>' +
+         '<div class="btn-row"><button class="btn-ghost" data-act="go-scores">去记录成绩</button></div></div>';
     document.getElementById('gapCard').innerHTML = h;
     return;
   }
 
-  var gap = Math.round((target - lt.value) * 10) / 10;
-  h += '<div class="gap-hero">';
-  h += '<div class="gap-main"><div class="gap-cap">最近总分</div><div class="gap-row">' +
-       '<span class="gap-score num">' + lt.value + '</span><span class="gap-goal">/ 目标 ' + target + '</span></div></div>';
-  h += '<div class="gap-badge' + (gap <= 0 ? ' good' : '') + '"><div class="k">' + (gap > 0 ? '还差' : '已超出') + '</div>' +
-       '<div class="v num">' + Math.abs(gap) + '<small>分</small></div></div>';
-  h += '</div>';
-  h += sparkline(totalSeries(), '#E07B00');
-
-  h += '<div class="gap-grid" style="margin-top:13px">';
-  SUBJECTS.forEach(function (sj) {
-    var l = latestSubject(sj.key);
-    var tg = num(s.targets[sj.key]) || 0;
-    var sc = l ? l.value : null;
-    var g = sc === null ? null : Math.round((tg - sc) * 10) / 10;
-    var pct = tg > 0 && sc !== null ? clamp(sc / tg * 100, 0, 100) : 0;
-    h += '<div class="gap-item" data-act="pick-subject" data-key="' + sj.key + '">';
-    h += '<div class="t"><i style="background:' + sj.color + '"></i>' + sj.name + '</div>';
-    h += '<div class="l"><span class="s num">' + (sc === null ? '—' : sc) + '<em>/' + tg + '</em></span>' +
-         '<span class="d' + (g !== null && g <= 0 ? ' good' : '') + '">' +
-         (g === null ? '未记录' : (g > 0 ? '差 ' + g : '超 ' + Math.abs(g))) + '</span></div>';
-    h += '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;background:linear-gradient(90deg,' + sj.color + ',' + sj.color + '99);box-shadow:none"></i></div>';
+  if (lt) {
+    /* 四科齐全：显示总分差距 */
+    var gap = round1(target - lt.value);
+    h += '<div class="gap-hero">';
+    h += '<div class="gap-main"><div class="gap-cap">最近总分' +
+         (lt.estimated ? ' · 四科最近成绩合计' : ' · 完整测试 ' + fmtShort(lt.date)) + '</div>' +
+         '<div class="gap-row"><span class="gap-score num">' + lt.value + '</span>' +
+         '<span class="gap-goal">/ ' + (target > 0 ? target + ' 目标' : '500 满分') + '</span></div></div>';
+    if (target > 0) {
+      h += '<div class="gap-badge' + (gap <= 0 ? ' good' : '') + '"><div class="k">' +
+           (gap > 0 ? '还差' : (gap < 0 ? '已超出' : '已达成')) + '</div><div class="v num">' +
+           (gap === 0 ? '<b>目标</b>' : Math.abs(gap) + '<small>分</small>') + '</div></div>';
+    } else {
+      h += '<div class="gap-badge"><div class="k">目标总分</div><div class="v num"><b>未设置</b></div></div>';
+    }
     h += '</div>';
-  });
-  h += '</div>';
+    h += sparkline(totalSeries(), '#E07B00');
+  } else {
+    /* 四科没记全：只显示最近一科与该科目标的差距，不比较总分 */
+    var raw = latestScoredSubject();
+    var st = raw ? subjectStat(raw.key) : null;
+    if (st) {
+      h += '<div class="gap-hero">';
+      h += '<div class="gap-main"><div class="gap-cap">' + st.sj.name + ' · 最近成绩' +
+           (st.date ? ' · ' + fmtShort(st.date) : '') + '</div>' +
+           '<div class="gap-row"><span class="gap-score num">' + st.score + '</span>' +
+           '<span class="gap-goal">/ ' + st.sj.max + (st.target !== null ? ' · 目标 ' + st.target : '') + '</span></div></div>';
+      h += gapBadgeHTML(st);
+      h += '</div>';
+      h += sparkline(subjectSeries(st.key), st.sj.color);
+    }
+    h += '<div class="gap-lock"><i class="lk"></i>四科都有成绩后，这里会显示总分差距</div>';
+  }
+
+  h += subjectProgressHTML();
+  h += '<div class="gap-grid">' + subjectGridHTML() + '</div>';
   var w = weakestSubject();
-  if (w) {
+  if (w && (lt || n > 1)) {
     h += '<div class="gap-tip"><i style="background:' + w.color + '"></i>最该补 <b>' + w.name + '</b> · 还差 ' +
          '<b>' + w.gap + '</b> 分（占该科满分 ' + Math.round(w.ratio * 100) + '%）</div>';
   }
@@ -702,25 +884,27 @@ function seriesFor(key) {
 }
 function renderGoalGrid() {
   var s = state.settings;
+  var n = recordedCount();
+  var goalSum = targetSum();
   var h = '<div class="card">';
-  h += '<div class="card-head"><h2 class="card-title">四科目标</h2><span class="card-hint">目标总分 ' + targetSum() + '</span></div>';
+  h += '<div class="card-head"><h2 class="card-title">四科目标</h2><span class="card-hint">' +
+       (goalSum > 0 ? '目标总分 ' + goalSum : '未设置目标总分') + ' · 已记录 ' + n + '/' + SUBJECTS.length + '</span></div>';
   SUBJECTS.forEach(function (sj) {
-    var l = latestSubject(sj.key);
-    var tg = num(s.targets[sj.key]) || 0;
-    var sc = l ? l.value : null;
-    var g = sc === null ? null : Math.round((tg - sc) * 10) / 10;
-    var pct = tg > 0 && sc !== null ? clamp(sc / tg * 100, 0, 100) : 0;
+    var st = subjectStat(sj.key);
+    var gapTxt = !st.has ? '' : (st.gap === null ? '未设置目标' :
+      (st.gap > 0 ? '还差 ' + st.gap + ' 分' : (st.gap < 0 ? '已超 ' + Math.abs(st.gap) + ' 分' : '已达成')));
     h += '<div class="gap-item" style="margin-bottom:8px" data-act="pick-subject" data-key="' + sj.key + '">';
     h += '<div class="t"><i style="background:' + sj.color + '"></i>' + sj.name +
-         '<span style="margin-left:auto;color:rgba(43,42,51,.42)">最近 ' + (sc === null ? '未记录' : sc + ' 分') +
-         (l ? ' · ' + fmtShort(l.date) : '') + '</span></div>';
-    h += '<div class="l"><span class="s num">' + (sc === null ? '—' : sc) + '<em>/ ' + tg + ' 目标</em></span>' +
-         '<span class="d' + (g !== null && g <= 0 ? ' good' : '') + '">' +
-         (g === null ? '' : (g > 0 ? '还差 ' + g + ' 分' : '已超 ' + Math.abs(g) + ' 分')) + '</span></div>';
-    h += '<div class="bar"><i style="width:' + pct.toFixed(1) + '%;background:linear-gradient(90deg,' + sj.color + ',' + sj.color + '99);box-shadow:none"></i></div>';
+         '<span style="margin-left:auto;color:rgba(43,42,51,.42)">最近 ' + (st.has ? st.score + ' 分' : '未记录') +
+         (st.has && st.date ? ' · ' + fmtShort(st.date) : '') + '</span></div>';
+    h += '<div class="l"><span class="s num">' + (st.has ? st.score : '—') + '<em>/ ' +
+         (st.target !== null ? st.target + ' 目标' : sj.max + ' 满分') + '</em></span>' +
+         '<span class="d' + (st.gap !== null && st.gap <= 0 ? ' good' : '') + '">' + gapTxt + '</span></div>';
+    h += '<div class="bar"><i style="width:' + st.pct.toFixed(1) + '%;background:linear-gradient(90deg,' + sj.color + ',' + sj.color + '99);box-shadow:none"></i></div>';
     h += '</div>';
   });
-  h += '<div class="rec-s" style="margin-top:6px">点击任意一科可查看该科成绩曲线</div></div>';
+  h += '<div class="rec-s" style="margin-top:6px">点击单科看曲线' +
+       (n === SUBJECTS.length ? '' : ' · 四科齐全后显示总分差距') + '</div></div>';
   document.getElementById('goalGrid').innerHTML = h;
 }
 
@@ -738,13 +922,20 @@ function renderTrend() {
   var isTotal = trendKey === 'total';
   var s = state.settings;
   var color = isTotal ? '#E07B00' : SUBJECT_MAP[trendKey].color;
-  var goal = isTotal ? targetSum() : num(s.targets[trendKey]);
-  document.getElementById('trendChart').innerHTML = lineChart(pts, { color: color, goal: goal, sel: trendSel });
+  var totalGoal = targetSum();
+  var goal = isTotal ? (totalGoal > 0 ? totalGoal : null) : subjectTarget(trendKey);
+  var notReady = isTotal && recordedCount() < SUBJECTS.length;
+  var emptyTip = notReady
+    ? '四科都有成绩后<br>显示总分趋势与差距'
+    : '还没有数据<br>点下方按钮记录第一次成绩';
+  document.getElementById('trendChart').innerHTML = lineChart(pts, {
+    color: color, goal: goal, sel: trendSel, empty: emptyTip
+  });
 
   var last = pts.length ? pts[pts.length - 1] : null;
   document.getElementById('trendHint').textContent = pts.length
-    ? (pts.length + ' 个数据点 · 最近 ' + last.value)
-    : '暂无数据';
+    ? (pts.length + ' 个数据点 · 最近 ' + last.value + (isTotal && last.estimated ? '（合计）' : ''))
+    : (notReady ? '已记录 ' + recordedCount() + '/' + SUBJECTS.length + ' 科' : '暂无数据');
 }
 
 function renderRecordList() {
@@ -759,6 +950,8 @@ function renderRecordList() {
 }
 
 function renderScores() {
+  var subEl = document.getElementById('scoresSub');
+  if (subEl) subEl.textContent = scoreSummaryText();
   renderGoalGrid();
   renderTrend();
   renderRecordList();
@@ -857,15 +1050,17 @@ function renderSettings() {
        '<input type="date" data-set="examDate" value="' + s.examDate + '"></div></div>';
   h += '</div></div>';
 
-  h += '<div class="set-group"><h3>四科目标分数</h3><div class="set-list">';
+  h += '<div class="set-group"><h3>四科目标分数<span class="set-badge">已记录 ' + recordedCount() + '/' + SUBJECTS.length + ' 科</span></h3><div class="set-list">';
   SUBJECTS.forEach(function (sj) {
+    var st = subjectStat(sj.key);
     h += '<div class="set-row"><div class="set-lb"><span style="display:inline-flex;align-items:center;gap:8px">' +
          '<i style="width:8px;height:8px;border-radius:50%;background:' + sj.color + ';display:inline-block"></i>' + sj.name +
-         '<small>满分 ' + sj.max + '</small></span></div><div class="set-field">' +
+         '<small>满分 ' + sj.max + ' · ' + (st.has ? '最近 ' + st.score + ' 分' : '未记录') + '</small></span></div><div class="set-field">' +
          '<input type="number" inputmode="decimal" data-set="t_' + sj.key + '" value="' + (num(s.targets[sj.key]) || 0) + '"><span>分</span></div></div>';
   });
-  h += '<div class="set-row"><div class="set-lb">目标总分<small>四科自动合计</small></div>' +
-       '<div class="set-field"><b class="num" style="font-size:17px">' + targetSum() + '<span style="font-weight:500">/500</span></b></div></div>';
+  h += '<div class="set-row"><div class="set-lb">目标总分<small>四科目标之和 · 不是当前成绩</small></div>' +
+       '<div class="set-field"><b class="num" id="targetTotal" style="font-size:17px">' + targetSum() +
+       '<span style="font-weight:500">/500</span></b></div></div>';
   h += '</div></div>';
 
   h += '<div class="set-group"><h3>每日每科目标时长</h3><div class="set-list">';
@@ -1108,9 +1303,11 @@ function recordSheet(rec) {
           var v = num(root.querySelector('input[data-k="' + sj.key + '"]').value);
           obj[sj.key] = v;
           if (v !== null) { filled++; sum += v; }
-          if (v !== null && v > sj.max) obj['__bad'] = sj.name;
+          if (v !== null && (v < 0 || v > sj.max)) {
+            obj['__bad'] = v < 0 ? (sj.name + ' 分数不能为负') : (sj.name + ' 超过满分 ' + sj.max);
+          }
         });
-        if (obj.__bad) { toast(obj.__bad + ' 超过满分'); return; }
+        if (obj.__bad) { toast(obj.__bad); return; }
         if (filled === 0) { toast('请至少填写一科分数'); return; }
         delete obj.__bad;
         if (yInfo.year !== null) obj.year = yInfo.year;
@@ -1122,6 +1319,7 @@ function recordSheet(rec) {
         var sc = num(root.querySelector('#rcScore').value);
         if (sc === null) { toast('请输入分数'); return; }
         var mx = SUBJECT_MAP[r.subject].max;
+        if (sc < 0) { toast('分数不能为负'); return; }
         if (sc > mx) { toast('超过该科满分 ' + mx); return; }
         var o2 = { id: editing ? rec.id : uid(), date: date, type: 'single', subject: r.subject, score: sc };
         if (yInfo.year !== null) o2.year = yInfo.year;
@@ -1352,21 +1550,33 @@ function bind() {
     var k = el.getAttribute('data-set');
     if (!k) return;
     var s = state.settings;
+    var isTarget = k.charAt(0) === 't' && k.charAt(1) === '_';
     if (k === 'examDate') {
       if (!el.value) return;
       s.examDate = el.value;
     } else if (k === 'salaryGoal') {
       s.salaryGoal = el.value.trim() || DEFAULT_SETTINGS.salaryGoal;
-    } else if (k.charAt(0) === 't' && k.charAt(1) === '_') {
+    } else if (isTarget) {
       var sk = k.slice(2);
       var v = num(el.value);
       s.targets[sk] = v === null ? 0 : clamp(v, 0, SUBJECT_MAP[sk].max);
     }
-    save(); renderTop();
+    save();
+    if (isTarget) {
+      /* 目标总分即时更新，不必等输入框失焦后整页重渲染 */
+      var tt = document.getElementById('targetTotal');
+      if (tt) tt.innerHTML = targetSum() + '<span style="font-weight:500">/500</span>';
+    }
+    renderTop();
   });
   document.addEventListener('change', function (e) {
-    if (e.target && e.target.getAttribute && e.target.getAttribute('data-set')) {
-      renderSettings();
+    var el = e.target;
+    if (!el || !el.getAttribute) return;
+    var k = el.getAttribute('data-set');
+    if (!k) return;
+    if (k.charAt(0) === 't' && k.charAt(1) === '_') {
+      /* 失焦时把输入回填成 clamp 后的真实值（超满分会被截断） */
+      el.value = num(state.settings.targets[k.slice(2)]) || 0;
     }
   });
 
@@ -1439,6 +1649,8 @@ window.KY = {
   weakestSubject: weakestSubject, planTimeText: planTimeText, PHASES: PHASES,
   switchTab: switchTab, subjectSeries: subjectSeries, totalSeries: totalSeries,
   latestTotal: latestTotal, targetSum: targetSum, dailyTotalMin: dailyTotalMin,
+  recordedCount: recordedCount, subjectStat: subjectStat, latestScoredSubject: latestScoredSubject,
+  subjectGapSentence: subjectGapSentence, scoreSummaryText: scoreSummaryText,
   MAX_TODOS: MAX_TODOS, openSheet: openSheet, closeSheet: closeSheet,
   recordSheet: recordSheet, todoSheet: todoSheet, examSheet: examSheet, STORE_KEY: STORE_KEY
 };

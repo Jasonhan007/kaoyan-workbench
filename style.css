@@ -1,4 +1,4 @@
-﻿/* ═══════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    考研工作台 · Liquid Glass（浅色 · 柔和暖白 + 彩色光斑）
    设计锚点：iOS 26/27 浅色 Control Center 玻璃层叠在暖白纸感底上
    性能约定：环境光不叠加 blur 滤镜、fixed 元素不用 drop-shadow、
@@ -457,6 +457,23 @@ main{padding:0 0 calc(112px + var(--safe-b));}
   border-bottom:.5px solid var(--line);transition:background .2s;}
 .ac-item:last-child{border-bottom:0;}
 .ac-item:active{background:rgba(255,255,255,.6);}
+
+/* ── 已记录科目 / 单科差距 ───────────────────────────────── */
+.subj-progress{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 3px;}
+.sp-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 9px;border-radius:var(--r-pill);
+  font-size:11.5px;color:var(--ink-3);background:rgba(255,255,255,.5);
+  border:.5px solid var(--stroke-2);transition:background .2s,color .2s,box-shadow .2s;cursor:pointer;}
+.sp-chip i{display:block;width:7px;height:7px;flex:0 0 7px;border-radius:50%;border:1.5px solid;}
+.sp-chip.on{color:var(--ink-2);background:rgba(255,255,255,.92);box-shadow:var(--shadow-soft);}
+.sp-chip:active{background:var(--glass-3);}
+.gap-lock{display:flex;align-items:center;gap:7px;margin:11px 0 0;padding:9px 12px;
+  border-radius:12px;background:rgba(224,123,0,.07);border:.5px dashed rgba(224,123,0,.32);
+  font-size:11.5px;line-height:1.4;color:#9A5B00;}
+.gap-lock .lk{width:6px;height:6px;flex:0 0 6px;border-radius:50%;background:var(--amber);}
+.gap-badge .v b{font-size:14px;font-weight:650;letter-spacing:0;}
+.set-badge{display:inline-block;margin-left:7px;padding:1.5px 7px;border-radius:99px;
+  background:rgba(43,42,51,.06);color:var(--ink-3);font-size:10.5px;font-weight:600;
+  letter-spacing:0;vertical-align:1.5px;}
 
 /* ── Toast ───────────────────────────────────────────────── */
 .toast{position:fixed;left:50%;bottom:calc(96px + var(--safe-b));z-index:120;
