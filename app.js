@@ -1078,13 +1078,298 @@ function renderSettings() {
   h += '</div></div>';
 
   h += '<div class="set-group"><h3>数据</h3><div class="set-list">';
-  h += '<div class="set-row"><div class="set-lb">记录条数<small>成绩 ' + state.records.length +
-       ' 条 · 事项 ' + todoCount() + ' 个</small></div></div>';
+  h += '<div class="set-row" data-act="data-export"><div class="set-lb">导出数据<small>JSON 备份 · 成绩 / 事项 / 设置</small></div>' +
+       '<div class="set-field"><span class="set-badge" style="margin:0">' + state.records.length + ' 条</span>' + chevSVG() + '</div></div>';
+  h += '<div class="set-row" data-act="data-import"><div class="set-lb">导入数据<small>从 JSON 备份恢复或合并</small></div>' +
+       '<div class="set-field">' + chevSVG() + '</div></div>';
+  h += '<div class="set-row"><div class="set-lb">本机数据<small>成绩 ' + state.records.length +
+       ' 条 · 事项 ' + todoCount() + ' 个 · 已记录科目 ' + recordedCount() + '/' + SUBJECTS.length + '</small></div></div>';
   h += '<div class="set-row" style="gap:9px"><button class="btn-ghost" style="flex:1" data-act="seed">重新载入示例</button>' +
        '<button class="btn-ghost danger" style="flex:1" data-act="wipe">清空全部数据</button></div>';
   h += '</div></div>';
 
   document.getElementById('settingsGroups').innerHTML = h;
+}
+
+/* ── 数据备份：导出 / 导入 ─────────────────────────────── */
+function pad2(n) { return (n < 10 ? '0' : '') + n; }
+function fmtDateTime(iso) {
+  var d = new Date(iso);
+  if (!d || isNaN(d.getTime())) return '';
+  return d.getFullYear() + '/' + pad2(d.getMonth() + 1) + '/' + pad2(d.getDate()) + ' ' +
+    pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+}
+function nowStamp() {
+  var d = new Date();
+  return d.getFullYear() + pad2(d.getMonth() + 1) + pad2(d.getDate()) + '-' + pad2(d.getHours()) + pad2(d.getMinutes());
+}
+function validDateKey(k) {
+  if (typeof k !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(k)) return false;
+  var p = k.split('-'), y = +p[0], m = +p[1], d = +p[2];
+  var dt = new Date(y, m - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
+function buildBackup() {
+  return {
+    app: 'kaoyan-workbench',
+    schema: STORE_KEY,
+    version: STATE_VERSION,
+    exportedAt: new Date().toISOString(),
+    data: JSON.parse(JSON.stringify(state))
+  };
+}
+function backupText() { return JSON.stringify(buildBackup(), null, 2); }
+
+function exportData() {
+  var text = backupText();
+  var name = 'kaoyan-workbench-' + nowStamp() + '.json';
+  try {
+    var blob = new Blob([text], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 1500);
+    toast('已导出 ' + state.records.length + ' 条成绩 · ' + name);
+  } catch (e) {
+    toast('导出失败，请重试');
+  }
+}
+
+/* 备份文件校验 + 归一化：坏数据被过滤，不会污染本机存档 */
+function normalizeImportedRecords(arr) {
+  var out = [], seen = {}, ignored = 0;
+  (Array.isArray(arr) ? arr : []).forEach(function (r) {
+    if (!r || typeof r !== 'object') { ignored++; return; }
+    if (!validDateKey(r.date)) { ignored++; return; }
+    var obj = null;
+    if (r.type === 'single') {
+      if (!SUBJECT_MAP[r.subject]) { ignored++; return; }
+      var sc = scoreOf(r.subject, r.score);
+      if (sc === null) { ignored++; return; }
+      obj = { id: '', date: r.date, type: 'single', subject: r.subject, score: sc };
+    } else if (r.type === 'full') {
+      var cols = {}, filled = 0;
+      SUBJECTS.forEach(function (sj) {
+        var v = scoreOf(sj.key, r[sj.key]);
+        cols[sj.key] = v;
+        if (v !== null) filled++;
+      });
+      if (!filled) { ignored++; return; }
+      obj = { id: '', date: r.date, type: 'full' };
+      SUBJECTS.forEach(function (sj) { obj[sj.key] = cols[sj.key]; });
+    } else { ignored++; return; }
+    if (r.year !== null && r.year !== undefined && r.year !== '') {
+      var y = num(r.year);
+      if (y !== null && Math.round(y) === y && y >= 1990 && y <= 2100) obj.year = Math.round(y);
+    }
+    if (typeof r.note === 'string' && r.note.trim()) obj.note = r.note.trim().slice(0, 200);
+    var id = (typeof r.id === 'string' && r.id && !seen[r.id]) ? r.id : uid();
+    seen[id] = true;
+    obj.id = id;
+    out.push(obj);
+  });
+  return { records: out, ignored: ignored };
+}
+function normalizeImportedChecks(c) {
+  var out = {};
+  if (!c || typeof c !== 'object') return out;
+  Object.keys(c).forEach(function (dk) {
+    if (!validDateKey(dk) || !c[dk] || typeof c[dk] !== 'object') return;
+    var day = {};
+    SUBJECTS.forEach(function (sj) { if (c[dk][sj.key]) day[sj.key] = true; });
+    if (Object.keys(day).length) out[dk] = day;
+  });
+  return out;
+}
+function recordedCountOf(records) {
+  var seen = {};
+  records.forEach(function (r) {
+    if (r.type === 'single') seen[r.subject] = true;
+    else SUBJECTS.forEach(function (sj) { if (r[sj.key] !== null && r[sj.key] !== undefined) seen[sj.key] = true; });
+  });
+  return SUBJECTS.filter(function (sj) { return seen[sj.key]; }).length;
+}
+function normalizeImportedState(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  var d = (raw.data && typeof raw.data === 'object' && !Array.isArray(raw.data)) ? raw.data : raw;
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  var hasKnown = Array.isArray(d.records) ||
+    (d.settings && typeof d.settings === 'object') ||
+    (d.todos && typeof d.todos === 'object');
+  if (!hasKnown) return null;
+
+  var src = (d.settings && typeof d.settings === 'object') ? d.settings : {};
+  var settings = {
+    school: (typeof src.school === 'string' && src.school.trim()) ? src.school.trim().slice(0, 24) : DEFAULT_SETTINGS.school,
+    major: (typeof src.major === 'string' && src.major.trim()) ? src.major.trim().slice(0, 24) : DEFAULT_SETTINGS.major,
+    salaryGoal: (typeof src.salaryGoal === 'string' && src.salaryGoal.trim()) ? src.salaryGoal.trim().slice(0, 12) : DEFAULT_SETTINGS.salaryGoal,
+    examDate: validDateKey(src.examDate) ? src.examDate : DEFAULT_SETTINGS.examDate,
+    targets: {},
+    dailySubjectMin: {}
+  };
+  SUBJECTS.forEach(function (sj) {
+    var t = num((src.targets || {})[sj.key]);
+    settings.targets[sj.key] = t === null ? DEFAULT_SETTINGS.targets[sj.key] : clamp(t, 0, sj.max);
+    var dm = num((src.dailySubjectMin || {})[sj.key]);
+    settings.dailySubjectMin[sj.key] = dm === null ? DEFAULT_SETTINGS.dailySubjectMin[sj.key] : clamp(dm, 0, 360);
+  });
+
+  var rec = normalizeImportedRecords(d.records);
+  var todos = normTodos(d.todos);
+  var checks = normalizeImportedChecks(d.checks);
+  var study = (d.study && typeof d.study === 'object' && !Array.isArray(d.study)) ? JSON.parse(JSON.stringify(d.study)) : {};
+  var out = { v: STATE_VERSION, settings: settings, records: rec.records, study: study, checks: checks, todos: todos };
+
+  var singles = 0, fulls = 0, todoTotal = 0;
+  out.records.forEach(function (r) { if (r.type === 'full') fulls++; else singles++; });
+  Object.keys(todos).forEach(function (k) { todoTotal += todos[k].length; });
+  var targetSum = 0;
+  SUBJECTS.forEach(function (sj) { targetSum += settings.targets[sj.key] || 0; });
+
+  var warnings = [];
+  if (rec.ignored) warnings.push('已忽略 ' + rec.ignored + ' 条无效成绩');
+  if (raw.exportedAt && isNaN(new Date(raw.exportedAt).getTime())) warnings.push('备份时间格式异常');
+
+  return {
+    state: out,
+    stats: {
+      records: out.records.length, singles: singles, fulls: fulls,
+      todos: todoTotal, todoDays: Object.keys(todos).length,
+      checkDays: Object.keys(checks).length,
+      recorded: recordedCountOf(out.records),
+      targetSum: Math.round(targetSum * 10) / 10
+    },
+    meta: {
+      exportedAt: raw.exportedAt ? String(raw.exportedAt) : null,
+      version: raw.version !== undefined ? String(raw.version) : null
+    },
+    warnings: warnings
+  };
+}
+function parseBackup(text) {
+  if (typeof text !== 'string' || !text.trim()) return null;
+  var raw;
+  try { raw = JSON.parse(text); } catch (e) { return null; }
+  return normalizeImportedState(raw);
+}
+
+/* 合并导入：保留本机设置与现有数据，补充备份里的成绩 / 打勾 / 缺的事项 */
+function mergeImportedState(cur, imp) {
+  var out = JSON.parse(JSON.stringify(cur));
+  out.v = STATE_VERSION;
+  var ids = {};
+  out.records.forEach(function (r) { if (r && r.id) ids[r.id] = true; });
+  imp.records.forEach(function (r) {
+    if (!r || !r.id || ids[r.id]) return;
+    ids[r.id] = true;
+    out.records.push(JSON.parse(JSON.stringify(r)));
+  });
+  Object.keys(imp.todos).forEach(function (dk) {
+    var list = out.todos[dk] || (out.todos[dk] = []);
+    var texts = {};
+    list.forEach(function (t) { texts[t.text] = true; });
+    imp.todos[dk].forEach(function (t) {
+      if (list.length >= MAX_TODOS || texts[t.text]) return;
+      list.push({ id: uid(), text: t.text, done: !!t.done });
+      texts[t.text] = true;
+    });
+  });
+  Object.keys(imp.checks).forEach(function (dk) {
+    var curC = out.checks[dk] || (out.checks[dk] = {});
+    SUBJECTS.forEach(function (sj) { if (imp.checks[dk][sj.key]) curC[sj.key] = true; });
+  });
+  Object.keys(imp.study || {}).forEach(function (k) {
+    if (!(k in out.study)) out.study[k] = imp.study[k];
+  });
+  return out;
+}
+function applyBackup(backup, mode) {
+  if (!backup || !backup.state) return false;
+  var imp = JSON.parse(JSON.stringify(backup.state));
+  state = (mode === 'merge') ? mergeImportedState(state, imp) : imp;
+  save();
+  refresh();
+  return true;
+}
+
+/* 导入预览弹层 */
+function bpRow(k, v, cls) {
+  return '<div class="bp-row' + (cls ? ' ' + cls : '') + '"><span class="bp-k">' + k + '</span><span class="bp-v">' + v + '</span></div>';
+}
+function importSheet(backup) {
+  var st = backup.stats, meta = backup.meta;
+  var target = backup.state.settings;
+  var mode = 'replace';
+  var h = '<div class="sheet-title">导入数据</div>' +
+    '<div class="sheet-sub">' + (meta.exportedAt ? '备份时间 ' + fmtDateTime(meta.exportedAt) + ' · ' : '') +
+    '检测到成绩 ' + st.records + ' 条 · 事项 ' + st.todos + ' 个（' + st.todoDays + ' 天）</div>';
+  h += '<div class="backup-preview">';
+  h += bpRow('院校 / 科目', esc(target.school) + ' · ' + esc(target.major));
+  h += bpRow('目标总分', st.targetSum > 0 ? st.targetSum + ' / 500' : '未设置');
+  h += bpRow('成绩记录', st.records + ' 条（完整测试 ' + st.fulls + ' · 单科 ' + st.singles + '）');
+  h += bpRow('已记录科目', st.recorded + ' / 4');
+  backup.warnings.forEach(function (w) { h += bpRow('提示', esc(w), 'warn'); });
+  h += '</div>';
+  h += '<div class="field"><label>导入方式</label><div class="seg-btn" id="impMode">' +
+       '<button class="on" data-m="replace">覆盖导入</button><button data-m="merge">合并导入</button></div></div>';
+  h += '<div class="imp-note" id="impNote">覆盖：用备份替换本机现有成绩、事项和设置（建议先导出当前数据备份）。</div>';
+  h += '<button class="btn-primary" id="impOk">确认导入</button>' +
+       '<div class="btn-row" style="margin-top:9px"><button class="btn-ghost" id="impCancel">取消</button></div>' + sheetFoot();
+  openSheet(h, function (root) {
+    root.querySelectorAll('#impMode button').forEach(function (b) {
+      b.onclick = function () {
+        mode = b.getAttribute('data-m');
+        root.querySelectorAll('#impMode button').forEach(function (x) { x.classList.remove('on'); });
+        b.classList.add('on');
+        root.querySelector('#impNote').textContent = mode === 'merge'
+          ? '合并：保留本机现有设置与事项，补充备份中的成绩、打勾和缺少的事项。'
+          : '覆盖：用备份替换本机现有成绩、事项和设置（建议先导出当前数据备份）。';
+      };
+    });
+    root.querySelector('#impOk').onclick = function () {
+      if (!applyBackup(backup, mode)) { toast('导入失败'); return; }
+      closeSheet();
+      toast(mode === 'merge' ? '已合并备份 · 共 ' + state.records.length + ' 条成绩'
+        : '已导入 ' + state.records.length + ' 条成绩');
+    };
+    root.querySelector('#impCancel').onclick = closeSheet;
+  });
+}
+
+/* 选择备份文件（iOS 走「文件」App） */
+function pickImportFile() {
+  var inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.json,application/json';
+  inp.style.display = 'none';
+  var handled = false;
+  inp.onchange = function () {
+    handled = true;
+    var f = inp.files && inp.files[0];
+    if (inp.parentNode) inp.parentNode.removeChild(inp);
+    if (!f) return;
+    if (f.size > 2 * 1024 * 1024) { toast('备份文件过大（超过 2MB）'); return; }
+    var fr = new FileReader();
+    fr.onload = function () {
+      var backup = parseBackup(String(fr.result || ''));
+      if (!backup) { toast('不是有效的备份文件'); return; }
+      importSheet(backup);
+    };
+    fr.onerror = function () { toast('读取文件失败，请重试'); };
+    fr.readAsText(f);
+  };
+  document.body.appendChild(inp);
+  inp.click();
+  setTimeout(function () {
+    if (!handled && inp.parentNode) inp.parentNode.removeChild(inp);
+  }, 60000);
 }
 
 /* ── 弹层 ─────────────────────────────────────────────── */
@@ -1517,6 +1802,8 @@ function bind() {
         toast(SUBJECT_MAP[skey].name + ' ' + hoursText(dm[skey]));
         break;
       }
+      case 'data-export': exportData(); break;
+      case 'data-import': pickImportFile(); break;
       case 'seed':
         state = seed(); save(); refresh(); toast('已载入示例数据');
         break;
@@ -1652,7 +1939,11 @@ window.KY = {
   recordedCount: recordedCount, subjectStat: subjectStat, latestScoredSubject: latestScoredSubject,
   subjectGapSentence: subjectGapSentence, scoreSummaryText: scoreSummaryText,
   MAX_TODOS: MAX_TODOS, openSheet: openSheet, closeSheet: closeSheet,
-  recordSheet: recordSheet, todoSheet: todoSheet, examSheet: examSheet, STORE_KEY: STORE_KEY
+  recordSheet: recordSheet, todoSheet: todoSheet, examSheet: examSheet, STORE_KEY: STORE_KEY,
+  exportData: exportData, backupText: backupText, buildBackup: buildBackup,
+  parseBackup: parseBackup, normalizeImportedState: normalizeImportedState,
+  applyBackup: applyBackup, importSheet: importSheet, pickImportFile: pickImportFile,
+  mergeImportedState: mergeImportedState
 };
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
