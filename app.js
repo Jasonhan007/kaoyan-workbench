@@ -66,12 +66,13 @@ function normParts(key, raw) {
   });
   return any ? out : null;
 }
-/* 校验题型输入并算总分：空值按 0 计，越界/非整数返回错误 */
+/* 校验题型输入并算总分：空白题型不计入 parts，越界/非整数返回错误 */
 function readParts(key, raw) {
-  var parts = {}, total = 0, err = null;
+  var parts = {}, total = 0, err = null, filled = 0;
   questionTypes(key).forEach(function (q) {
     var v = num(raw ? raw[q.key] : null);
-    if (v === null) v = 0;
+    if (v === null) return;
+    filled++;
     if (q.mode === 'count') {
       if (Math.round(v) !== v) { err = err || (q.name + '要填整数题数'); return; }
       if (v < 0 || v > q.count) { err = err || (q.name + '题数需在 0–' + q.count + ' 之间'); return; }
@@ -83,6 +84,7 @@ function readParts(key, raw) {
       total += v;
     }
   });
+  if (!err && !filled) err = '请至少填写一个题型';
   return { ok: !err, error: err, parts: parts, total: Math.round(total * 10) / 10 };
 }
 /* 展示用：把题型输入折算成总分与逐项文案（越界值钳制，不报错） */
@@ -986,6 +988,8 @@ function renderToday() {
 /* ── 成绩页 ───────────────────────────────────────────── */
 var trendKey = 'total';
 var trendSel = null;
+var typeSel = null;       /* 题型趋势当前科目 */
+var typeSelManual = false; /* 用户手动切换过后不再自动改选 */
 var justAddedId = null;   /* 新增记录的视觉强调 */
 var freshTimer = null;
 function markFresh(id) {
@@ -1055,6 +1059,102 @@ function renderTrend() {
     : (notReady ? '已记录 ' + recordedCount() + '/' + SUBJECTS.length + ' 科' : '暂无数据');
 }
 
+/* ── 题型得分趋势 ─────────────────────────────────────── */
+function partsRecordCount(key) {
+  var n = 0;
+  state.records.forEach(function (r) {
+    if (r && r.type === 'single' && r.subject === key && r.parts) n++;
+  });
+  return n;
+}
+function pickTypeSubject() {
+  var best = null, bestN = -1;
+  SUBJECTS.forEach(function (s) {
+    var n = partsRecordCount(s.key);
+    if (n > bestN) { bestN = n; best = s.key; }
+  });
+  return best || 'english';
+}
+/* 每个题型一条序列：按记录日期升序，value 为该题型得分率(0-100) */
+function typeTrendData(key) {
+  var rows = questionTypes(key).map(function (q) {
+    var max = q.mode === 'count' ? q.count * q.per : q.max;
+    return { q: q, max: max, pts: [] };
+  });
+  var byKey = {};
+  rows.forEach(function (r) { byKey[r.q.key] = r; });
+  sortedRecords().forEach(function (rec) {
+    if (!rec || rec.type !== 'single' || rec.subject !== key || !rec.parts) return;
+    var st = partsStat(key, rec.parts);
+    st.items.forEach(function (it) {
+      var row = byKey[it.q.key];
+      if (!row || it.v === null) return;
+      row.pts.push({
+        date: rec.date, id: rec.id, max: row.max, got: it.got,
+        value: row.max ? Math.round(it.got / row.max * 1000) / 10 : 0
+      });
+    });
+  });
+  return rows;
+}
+function typeTrendHintText(rows) {
+  var n = rows.reduce(function (m, r) { return Math.max(m, r.pts.length); }, 0);
+  if (!n) return '按题型记录后显示';
+  return n + ' 次 · 最近得分率';
+}
+function typeTrendRowHTML(sj, row) {
+  var pts = row.pts, last = pts.length ? pts[pts.length - 1] : null;
+  var spark = pts.length >= 2
+    ? sparkline(pts.map(function (p) { return { value: p.value, date: p.date }; }), sj.color)
+    : '<span class="qt-rt-few">' + (pts.length ? '仅 1 次记录' : '暂无记录') + '</span>';
+  return '<div class="qt-rt">' +
+    '<div class="qt-rt-head"><span class="qt-rt-name">' + row.q.name +
+      '</span><span class="qt-rt-val">' + (last ? last.got + '/' + row.max : '—') + '</span></div>' +
+    '<div class="qt-rt-spark' + (pts.length >= 2 ? '' : ' is-empty') + '">' + spark + '</div>' +
+    '<div class="qt-rt-pct' + (last ? '' : ' is-empty') + '"' + (last ? ' style="color:' + sj.color + '"' : '') + '>' +
+      (last ? last.value + '<small>%</small>' : '—') + '</div>' +
+    '</div>';
+}
+function renderTypeTrend() {
+  var box = document.getElementById('typeTrendBody');
+  var seg = document.getElementById('typeSeg');
+  if (!box || !seg) return;
+  if (!typeSel || !SUBJECT_MAP[typeSel] || (!typeSelManual && !partsRecordCount(typeSel))) {
+    typeSel = pickTypeSubject();
+  }
+  var idx = Math.max(0, SUBJECTS.findIndex(function (s) { return s.key === typeSel; }));
+  var segHtml = '<div class="seg-thumb" style="width:calc((100% - 6px)/' + SUBJECTS.length +
+    ');transform:translateX(' + (idx * 100) + '%)"></div>';
+  SUBJECTS.forEach(function (s) {
+    segHtml += '<button class="' + (s.key === typeSel ? 'on' : '') + '" data-act="type-subject" data-key="' +
+      s.key + '">' + s.name + '</button>';
+  });
+  seg.innerHTML = segHtml;
+
+  var rows = typeTrendData(typeSel);
+  var any = rows.some(function (r) { return r.pts.length > 0; });
+  document.getElementById('typeTrendHint').textContent = typeTrendHintText(rows);
+  if (!any) {
+    box.innerHTML = '<div class="empty-box">还没有题型数据<br>记录单科成绩时选「按题型」即可</div>';
+    return;
+  }
+  var h = '<div class="qt-rt-list">' + rows.map(function (r) {
+    return typeTrendRowHTML(SUBJECT_MAP[typeSel], r);
+  }).join('') + '</div>';
+  var withData = rows.filter(function (r) { return r.pts.length; });
+  var weakest = withData.reduce(function (min, r) {
+    var last = r.pts[r.pts.length - 1];
+    return (!min || last.value < min.last.value) ? { row: r, last: last } : min;
+  }, null);
+  if (weakest && weakest.last.value < 100) {
+    h += '<div class="qt-rt-foot">最该补 <b>' + weakest.row.q.name + '</b> · 最近 ' +
+      weakest.last.got + '/' + weakest.row.max + '（' + weakest.last.value + '%）</div>';
+  } else if (weakest) {
+    h += '<div class="qt-rt-foot">各题型最近一次都是满分，保持状态</div>';
+  }
+  box.innerHTML = h;
+}
+
 function renderRecordList() {
   var list = sortedRecords().slice().reverse();
   document.getElementById('recordCount').textContent = list.length ? '共 ' + list.length + ' 条' : '';
@@ -1071,6 +1171,7 @@ function renderScores() {
   if (subEl) subEl.textContent = scoreSummaryText();
   renderGoalGrid();
   renderTrend();
+  renderTypeTrend();
   renderRecordList();
 }
 
@@ -1880,7 +1981,6 @@ function quickSheet() {
     '<div class="ac-list">' +
     '<div class="ac-item" data-q="record"><span style="font-size:17px">◎</span>记录一次测试成绩</div>' +
     '<div class="ac-item" data-q="todo"><span style="font-size:17px">✓</span>添加今日事项</div>' +
-    '<div class="ac-item" data-q="cal"><span style="font-size:17px">▤</span>给某个日期加事项</div>' +
     '</div>' + sheetFoot();
   openSheet(h, function (root) {
     root.querySelectorAll('[data-q]').forEach(function (it) {
@@ -1889,7 +1989,6 @@ function quickSheet() {
         setTimeout(function () {
           if (q === 'record') recordSheet(null);
           else if (q === 'todo') todoSheet(today());
-          else if (q === 'cal') { switchTab('calendar'); selDay = selDay || today(); renderCalendar(); toast('选择一个日期'); }
         }, 120);
       };
     });
@@ -2014,6 +2113,11 @@ function bind() {
         trendKey = el.getAttribute('data-key');
         trendSel = null;
         renderTrend();
+        break;
+      case 'type-subject':
+        typeSel = el.getAttribute('data-key');
+        typeSelManual = true;
+        renderTypeTrend();
         break;
       case 'cal-day': {
         var prev = document.querySelector('.cal-cell.sel');
@@ -2170,7 +2274,7 @@ window.KY = {
   mergeImportedState: mergeImportedState,
   SUBJECTS: SUBJECTS, SUBJECT_MAP: SUBJECT_MAP, QUESTION_TYPES: QUESTION_TYPES,
   questionTypes: questionTypes, readParts: readParts, partsStat: partsStat, partsMax: partsMax,
-  yearBestPoints: yearBestPoints
+  yearBestPoints: yearBestPoints, typeTrendData: typeTrendData, renderTypeTrend: renderTypeTrend
 };
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

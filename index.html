@@ -11,10 +11,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="format-detection" content="telephone=no">
 <meta name="theme-color" content="#F4F0E9">
-<link rel="icon" type="image/png" sizes="64x64" href="favicon.png?v=20261030c">
-<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=20261030c">
-<link rel="apple-touch-icon" sizes="180x180" href="icon.png?v=20261030c">
-<link rel="stylesheet" href="style.css?v=20261030c">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png?v=20261030e">
+<link rel="icon" type="image/png" sizes="512x512" href="icon-512.png?v=20261030e">
+<link rel="apple-touch-icon" sizes="180x180" href="icon.png?v=20261030e">
+<link rel="stylesheet" href="style.css?v=20261030e">
 </head>
 <body>
 <p data-aigc-mark="1" style="margin:0 0 8px;font-size:10px;line-height:1.3;color:#6b6560;font-weight:400;">AI生成</p>
@@ -67,6 +67,14 @@
         </div>
         <div class="seg" id="trendSeg" role="tablist"></div>
         <div class="chart-wrap" id="trendChart"></div>
+      </div>
+      <div class="card" id="typeTrendCard">
+        <div class="card-head">
+          <h2 class="card-title">题型得分趋势</h2>
+          <span class="card-hint" id="typeTrendHint"></span>
+        </div>
+        <div class="seg" id="typeSeg" role="tablist"></div>
+        <div id="typeTrendBody"></div>
       </div>
       <h2 class="section-title">全部记录 <span id="recordCount"></span></h2>
       <div id="recordList"></div>
@@ -145,6 +153,6 @@
 
 <div class="toast" id="toast" role="status"></div>
 
-<script src="app.js?v=20261030c"></script>
+<script src="app.js?v=20261030e"></script>
 </body>
 </html>

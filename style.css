@@ -589,3 +589,19 @@ main{padding:0 0 calc(128px + var(--safe-b));}
   *{animation-duration:.001ms !important;transition-duration:.06s !important;}
   .blob{animation:none;}
 }
+
+/* ── 题型得分趋势 ─────────────────────────────────────── */
+.qt-rt-list{margin-top:2px}
+.qt-rt{display:grid;grid-template-columns:92px minmax(0,1fr) 52px;align-items:center;gap:10px;padding:9px 0;border-top:1px solid rgba(43,42,51,.07)}
+.qt-rt-list .qt-rt:first-child{border-top:0}
+.qt-rt-head{min-width:0}
+.qt-rt-name{display:block;font-size:13px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qt-rt-val{display:block;margin-top:1px;font-size:11px;font-weight:550;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.qt-rt-spark{min-width:0;display:flex;align-items:center}
+.qt-rt-spark svg{height:38px !important}
+.qt-rt-few{display:flex;align-items:center;height:38px;font-size:11px;color:var(--ink-3)}
+.qt-rt-pct{text-align:right;font-size:15.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.qt-rt-pct small{font-size:10px;font-weight:650;margin-left:1px;color:var(--ink-3)}
+.qt-rt-pct.is-empty{color:var(--ink-3);font-weight:600;font-size:13px}
+.qt-rt-foot{margin-top:6px;padding-top:10px;border-top:1px dashed rgba(224,123,0,.3);font-size:11.5px;color:var(--ink-3)}
+.qt-rt-foot b{color:var(--ink);font-weight:650}
