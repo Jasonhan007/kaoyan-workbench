@@ -9,14 +9,103 @@
 var STORE_KEY = 'ky_workbench_v1';
 
 var SUBJECTS = [
-  { key: 'politics', name: '政治',   short: '政',  color: '#E07B00', max: 100 },
-  { key: 'english',  name: '英语二', short: '英',  color: '#0A7CFF', max: 100 },
-  { key: 'math',     name: '数学二', short: '数',  color: '#9B4BE0', max: 150 },
+  { key: 'politics', name: '政治', short: '政', color: '#E07B00', max: 100 },
+  { key: 'english',  name: '英语', short: '英', color: '#E5484D', max: 100 },
+  { key: 'math',     name: '数学', short: '数', color: '#0A84FF', max: 150 },
   // key 沿用 cs408 以兼容历史成绩数据，显示名按专业课展示
-  { key: 'cs408',    name: '专业课', short: '专',  color: '#1FA84A', max: 150 }
+  { key: 'cs408',    name: '专业课', short: '专', color: '#1FA84A', max: 150 }
 ];
 var SUBJECT_MAP = {};
 SUBJECTS.forEach(function (s) { SUBJECT_MAP[s.key] = s; });
+
+/* ── 题型模板：按「答对题数」或「直接得分」折算单科总分 ──
+   count 模式：填答对题数，得分 = 题数 × 每题分；score 模式：直接填该题型得分。
+   模板分数之和必须等于该科满分（政治/英语 100，数学/专业课 150）。 */
+var QUESTION_TYPES = {
+  politics: [
+    { key: 'single',   name: '单选题', mode: 'count', count: 16, per: 1 },
+    { key: 'multi',    name: '多选题', mode: 'count', count: 17, per: 2 },
+    { key: 'analysis', name: '分析题', mode: 'score', max: 50 }
+  ],
+  english: [
+    { key: 'cloze',   name: '完形填空', mode: 'count', count: 20, per: 0.5 },
+    { key: 'reading', name: '阅读理解', mode: 'count', count: 20, per: 2 },
+    { key: 'newtype', name: '新题型',   mode: 'count', count: 5,  per: 2 },
+    { key: 'trans',   name: '翻译',     mode: 'score', max: 15 },
+    { key: 'writing', name: '写作',     mode: 'score', max: 25 }
+  ],
+  math: [
+    { key: 'choice',   name: '选择题', mode: 'count', count: 10, per: 5 },
+    { key: 'blank',    name: '填空题', mode: 'count', count: 6,  per: 5 },
+    { key: 'solution', name: '解答题', mode: 'score', max: 70 }
+  ],
+  cs408: [
+    { key: 'choice',        name: '选择题',     mode: 'count', count: 40, per: 2 },
+    { key: 'comprehensive', name: '综合应用题', mode: 'score', max: 70 }
+  ]
+};
+function questionTypes(key) { return QUESTION_TYPES[key] || []; }
+function partsMax(key) {
+  var sum = 0;
+  questionTypes(key).forEach(function (q) {
+    sum += q.mode === 'count' ? q.count * q.per : q.max;
+  });
+  return Math.round(sum * 10) / 10;
+}
+/* 归一化题型输入（用于备份导入：越界值钳制到合法范围） */
+function normParts(key, raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  var out = {}, any = false;
+  questionTypes(key).forEach(function (q) {
+    if (!Object.prototype.hasOwnProperty.call(raw, q.key)) return;
+    var v = num(raw[q.key]);
+    if (v === null) return;
+    v = q.mode === 'count' ? clamp(Math.round(v), 0, q.count) : Math.round(clamp(v, 0, q.max) * 10) / 10;
+    out[q.key] = v;
+    any = true;
+  });
+  return any ? out : null;
+}
+/* 校验题型输入并算总分：空值按 0 计，越界/非整数返回错误 */
+function readParts(key, raw) {
+  var parts = {}, total = 0, err = null;
+  questionTypes(key).forEach(function (q) {
+    var v = num(raw ? raw[q.key] : null);
+    if (v === null) v = 0;
+    if (q.mode === 'count') {
+      if (Math.round(v) !== v) { err = err || (q.name + '要填整数题数'); return; }
+      if (v < 0 || v > q.count) { err = err || (q.name + '题数需在 0–' + q.count + ' 之间'); return; }
+      parts[q.key] = v;
+      total += v * q.per;
+    } else {
+      if (v < 0 || v > q.max) { err = err || (q.name + '得分需在 0–' + q.max + ' 之间'); return; }
+      parts[q.key] = Math.round(v * 10) / 10;
+      total += v;
+    }
+  });
+  return { ok: !err, error: err, parts: parts, total: Math.round(total * 10) / 10 };
+}
+/* 展示用：把题型输入折算成总分与逐项文案（越界值钳制，不报错） */
+function partsStat(key, raw) {
+  var total = 0, items = [];
+  questionTypes(key).forEach(function (q) {
+    var v = num(raw ? raw[q.key] : null), got = 0, txt = '—';
+    if (v !== null) {
+      if (q.mode === 'count') {
+        v = clamp(Math.round(v), 0, q.count);
+        got = v * q.per;
+        txt = v + '/' + q.count;
+      } else {
+        v = clamp(v, 0, q.max);
+        got = v;
+        txt = v + '/' + q.max;
+      }
+    }
+    total += got;
+    items.push({ q: q, v: v, got: Math.round(got * 10) / 10, txt: txt });
+  });
+  return { total: Math.round(total * 10) / 10, items: items };
+}
 
 var DEFAULT_SETTINGS = {
   school: '武汉理工大学',
@@ -99,7 +188,7 @@ function seed() {
   };
   st.todos[today()] = [
     { id: uid(), text: '数学 2019 真题第二遍 + 专业课第 5 章', done: false },
-    { id: uid(), text: '英语二 2016 阅读精读 + 背 1 个 unit', done: false },
+    { id: uid(), text: '英语 2016 阅读精读 + 背 1 个 unit', done: false },
     { id: uid(), text: '政治马原第 4 章选择题 30 道', done: false }
   ];
   st.todos[keyOf(addDays(t, 1))] = [
@@ -316,7 +405,7 @@ function latestScoredSubject() {
   }
   return null;
 }
-/* 单科差距文案：英语二最近成绩 62/100，距离该科目标还差 18 分 */
+/* 单科差距文案：英语最近成绩 62/100，距离该科目标还差 18 分 */
 function subjectGapSentence(key) {
   var st = subjectStat(key);
   if (!st.has) return st.sj.name + '还没有成绩记录';
@@ -414,6 +503,22 @@ function smoothPath(pts) {
   return d;
 }
 
+/* 同一年份可多次记录：曲线只连该年最高分，其他记录标记为 dotOnly（只画圆点） */
+function yearBestPoints(points) {
+  var best = {};
+  var out = points.map(function (p) {
+    return { date: p.date, value: p.value, full: p.full, estimated: p.estimated, year: p.year, id: p.id, dotOnly: false };
+  });
+  out.forEach(function (p) {
+    if (!p.year) return;
+    if (!best[p.year] || p.value > best[p.year].value) best[p.year] = p;
+  });
+  out.forEach(function (p) {
+    if (p.year && best[p.year] !== p) p.dotOnly = true;
+  });
+  return out;
+}
+
 function lineChart(points, opt) {
   opt = opt || {};
   var W = 320, H = 168, pl = 34, pr = 12, pt = 22, pb = 26;
@@ -437,8 +542,15 @@ function lineChart(points, opt) {
   function Y(v) { return pt + (H - pt - pb) * (1 - (v - lo) / (hi - lo)); }
 
   var xy = points.map(function (p, i) { return [X(i), Y(p.value)]; });
-  var line = smoothPath(xy);
-  var area = line + ' L' + xy[n - 1][0].toFixed(1) + ',' + (H - pb) + ' L' + xy[0][0].toFixed(1) + ',' + (H - pb) + ' Z';
+  /* 折线与面积只经过「当年最高分 / 非真题」的点，非最高分记录只落圆点 */
+  var lineXY = [];
+  points.forEach(function (p, i) { if (!p.dotOnly) lineXY.push(xy[i]); });
+  var line = smoothPath(lineXY);
+  var area = '';
+  if (line && lineXY.length > 1) {
+    area = line + ' L' + lineXY[lineXY.length - 1][0].toFixed(1) + ',' + (H - pb) +
+           ' L' + lineXY[0][0].toFixed(1) + ',' + (H - pb) + ' Z';
+  }
 
   var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img">';
   svg += '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">' +
@@ -466,14 +578,19 @@ function lineChart(points, opt) {
     svg += '<text x="' + (W - pr) + '" y="' + (gy - 5).toFixed(1) + '" text-anchor="end" font-size="9.5" fill="rgba(224,123,0,.95)">目标 ' + goal + '</text>';
   }
 
-  svg += '<path d="' + area + '" fill="url(#' + gid + ')"/>';
-  svg += '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#f' + gid + ')" opacity=".95"/>';
+  if (area) svg += '<path d="' + area + '" fill="url(#' + gid + ')"/>';
+  if (line) svg += '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#f' + gid + ')" opacity=".95"/>';
 
-  // 数据点
+  // 数据点：最高分/普通记录实心白心；同一年份的其他尝试只画小圆点
   var sel = opt.sel;
   points.forEach(function (p, i) {
     var last = i === n - 1;
     var isSel = sel === i;
+    if (p.dotOnly) {
+      svg += '<circle cx="' + xy[i][0].toFixed(1) + '" cy="' + xy[i][1].toFixed(1) + '" r="' + (isSel ? 4.6 : 3) +
+             '" fill="#fff" stroke="' + color + '" stroke-width="1.5" opacity="' + (isSel ? .95 : .55) + '"/>';
+      return;
+    }
     if (n > 14 && !last && !isSel) return;
     svg += '<circle cx="' + xy[i][0].toFixed(1) + '" cy="' + xy[i][1].toFixed(1) + '" r="' + (isSel ? 5 : (last ? 4.2 : 2.8)) +
            '" fill="#fff" stroke="' + color + '" stroke-width="2"/>';
@@ -486,6 +603,7 @@ function lineChart(points, opt) {
            '" stroke="' + color + '" stroke-width="1" stroke-dasharray="3 3" opacity=".55"/>';
     var label = String(points[sel].value) + (opt.unit || '') +
       (points[sel].year ? '  ' + points[sel].year + ' 真题' : '') +
+      (points[sel].dotOnly ? '（非最高）' : '') +
       '  ' + fmtShort(points[sel].date);
     var tw = label.length * 6.1 + 14;
     var tx = clamp(sx - tw / 2, 2, W - tw - 2);
@@ -529,6 +647,8 @@ function toast(msg) {
 
 /* ── 小组件 ───────────────────────────────────────────── */
 function sparkline(points, color) {
+  /* 只把「当年最高分 / 非真题」的点连成线，非最高分记录不参与 */
+  points = points.filter(function (p) { return !p.dotOnly; });
   if (points.length < 2) return '';
   var W = 300, H = 54, pl = 3, pr = 3, pt = 10, pb = 8;
   var vs = points.map(function (p) { return p.value; });
@@ -718,7 +838,7 @@ function renderGap() {
       h += '<div class="gap-badge"><div class="k">目标总分</div><div class="v num"><b>未设置</b></div></div>';
     }
     h += '</div>';
-    h += sparkline(totalSeries(), '#E07B00');
+    h += sparkline(yearBestPoints(totalSeries()), '#E07B00');
   } else {
     /* 四科没记全：只显示最近一科与该科目标的差距，不比较总分 */
     var raw = latestScoredSubject();
@@ -731,7 +851,7 @@ function renderGap() {
            '<span class="gap-goal">/ ' + st.sj.max + (st.target !== null ? ' · 目标 ' + st.target : '') + '</span></div></div>';
       h += gapBadgeHTML(st);
       h += '</div>';
-      h += sparkline(subjectSeries(st.key), st.sj.color);
+      h += sparkline(yearBestPoints(subjectSeries(st.key)), st.sj.color);
     }
     h += '<div class="gap-lock"><i class="lk"></i>四科都有成绩后，这里会显示总分差距</div>';
   }
@@ -837,16 +957,22 @@ function recordRowHTML(r) {
     sub = SUBJECTS.map(function (s) { return s.short + ' ' + (num(r[s.key]) === null ? '-' : r[s.key]); }).join(' · ');
   } else {
     score = r.score;
-    sub = '单科成绩 · 满分 ' + (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].max : 100);
+    var pt = r.parts ? partsStat(r.subject, r.parts) : null;
+    if (pt) {
+      sub = '题型 · ' + pt.items.map(function (it) { return it.q.name + ' ' + it.txt; }).join(' · ');
+    } else {
+      sub = '单科成绩 · 满分 ' + (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].max : 100);
+    }
   }
+  var isParts = !isFull && !!r.parts;
   return '<div class="rec-row' + (r.id === justAddedId ? ' fresh' : '') + '" data-act="open-record" data-id="' + r.id + '">' +
     '<div class="rec-icon" style="background:linear-gradient(150deg,' + color + ',' + color + 'aa)">' + icon + '</div>' +
     '<div class="rec-main"><div class="rec-t">' + title +
-    (isFull ? '<span class="tag full">总分</span>' : '<span class="tag">单科</span>') +
+    (isFull ? '<span class="tag full">总分</span>' : (isParts ? '<span class="tag">题型</span>' : '<span class="tag">单科</span>')) +
     (r.year ? '<span class="tag year">' + r.year + ' 真题</span>' : '') + '</div>' +
     '<div class="rec-s">' + fmtMDW(r.date).replace(/\s.*/, '') + ' · ' + sub + '</div>' +
     (r.note ? '<div class="rec-note">' + esc(r.note) + '</div>' : '') + '</div>' +
-    '<div class="rec-score"><div class="v num">' + score + (isFull ? '<small>/500</small>' : '') + '</div>' +
+    '<div class="rec-score"><div class="v num">' + score + (isFull ? '<small>/500</small>' : (isParts ? '<small>/' + SUBJECT_MAP[r.subject].max + '</small>' : '')) + '</div>' +
     '<div class="d">' + fmtShort(r.date) + '</div></div></div>';
 }
 
@@ -907,7 +1033,7 @@ function renderTrend() {
   });
   seg.innerHTML = html;
 
-  var pts = seriesFor(trendKey);
+  var pts = yearBestPoints(seriesFor(trendKey));
   var isTotal = trendKey === 'total';
   var s = state.settings;
   var color = isTotal ? '#E07B00' : SUBJECT_MAP[trendKey].color;
@@ -922,8 +1048,10 @@ function renderTrend() {
   });
 
   var last = pts.length ? pts[pts.length - 1] : null;
+  var dotN = pts.filter(function (p) { return p.dotOnly; }).length;
   document.getElementById('trendHint').textContent = pts.length
-    ? (pts.length + ' 个数据点 · 最近 ' + last.value + (isTotal && last.estimated ? '（合计）' : ''))
+    ? (pts.length + ' 个数据点 · ' + (dotN ? '曲线取每年最高分 · ' : '') +
+       '最近 ' + last.value + (isTotal && last.estimated ? '（合计）' : ''))
     : (notReady ? '已记录 ' + recordedCount() + '/' + SUBJECTS.length + ' 科' : '暂无数据');
 }
 
@@ -1152,9 +1280,11 @@ function normalizeImportedRecords(arr) {
     var obj = null;
     if (r.type === 'single') {
       if (!SUBJECT_MAP[r.subject]) { ignored++; return; }
-      var sc = scoreOf(r.subject, r.score);
+      var pIn = normParts(r.subject, r.parts);
+      var sc = pIn ? readParts(r.subject, pIn).total : scoreOf(r.subject, r.score);
       if (sc === null) { ignored++; return; }
       obj = { id: '', date: r.date, type: 'single', subject: r.subject, score: sc };
+      if (pIn) obj.parts = pIn;
     } else if (r.type === 'full') {
       var cols = {}, filled = 0;
       SUBJECTS.forEach(function (sj) {
@@ -1461,7 +1591,7 @@ function yearField(r) {
     var yy = cur - i;
     h += '<button class="year-chip' + (y === yy ? ' on' : '') + '" data-y="' + yy + '">' + yy + '</button>';
   }
-  h += '<input type="number" inputmode="numeric" id="rcYear" placeholder="其他" maxlength="4" value="' + (y === null ? '' : y) + '">';
+  h += '<input type="number" inputmode="numeric" id="rcYear" placeholder="其他年份" maxlength="4" value="' + (y === null ? '' : y) + '">';
   h += '</div></div>';
   return h;
 }
@@ -1482,9 +1612,30 @@ function recordSheet(rec) {
   var editing = !!rec;
   var type = editing ? rec.type : 'full';
   var r = editing ? rec : { date: today(), type: 'full', subject: 'math', score: '' };
+  /* 单科录入方式：parts = 按题型填对题数/得分；score = 直接填单科总分 */
+  var singleMode = (editing && type === 'single' && rec.parts) ? 'parts'
+    : (editing && type === 'single' ? 'score' : 'parts');
+  var partVals = {};
+  function initPartVals() {
+    partVals = {};
+    if (editing && rec.parts && rec.subject === r.subject) {
+      questionTypes(r.subject).forEach(function (q) {
+        if (rec.parts[q.key] !== undefined && rec.parts[q.key] !== null) partVals[q.key] = rec.parts[q.key];
+      });
+    }
+  }
+  initPartVals();
+
+  function collectParts(root) {
+    var raw = {};
+    root.querySelectorAll('input[data-qt]').forEach(function (i) {
+      raw[i.getAttribute('data-qt')] = i.value === '' ? null : num(i.value);
+    });
+    return raw;
+  }
   function body() {
     var h = '<div class="sheet-title">' + (editing ? '编辑记录' : '记录成绩') + '</div>' +
-      '<div class="sheet-sub">' + (type === 'full' ? '一次完整测试，自动计算总分' : '单科测试或小题得分') + '</div>';
+      '<div class="sheet-sub">' + (type === 'full' ? '一次完整测试，自动计算总分' : '单科测试：可按题型填答对题数，自动折算得分') + '</div>';
     if (!editing) {
       h += '<div class="seg-btn"><button class="' + (type === 'full' ? 'on' : '') + '" data-t="full">完整测试</button>' +
            '<button class="' + (type === 'single' ? 'on' : '') + '" data-t="single">单科成绩</button></div>';
@@ -1502,12 +1653,38 @@ function recordSheet(rec) {
     } else {
       h += '<div class="field"><label>科目</label><div class="seg-btn" style="margin-bottom:0">';
       SUBJECTS.forEach(function (sj) {
-        h += '<button class="' + (r.subject === sj.key ? 'on' : '') + '" data-s="' + sj.key + '" style="padding:9px 4px;font-size:13px">' + sj.name + '</button>';
+        var on = r.subject === sj.key;
+        h += '<button class="' + (on ? 'on' : '') + '" data-s="' + sj.key + '" style="padding:9px 4px;font-size:13px' +
+             (on ? ';background:linear-gradient(150deg,' + sj.color + ',' + sj.color + 'cc);border-color:transparent;box-shadow:0 8px 18px ' + sj.color + '47' : '') +
+             '">' + sj.name + '</button>';
       });
       h += '</div></div>';
-      h += '<div class="field"><label>分数</label><div class="field-inline">' +
-           '<input type="number" inputmode="decimal" id="rcScore" style="text-align:left;padding:13px 14px;border-radius:15px;background:#fff;border:.5px solid rgba(122,106,84,.16);width:100%" placeholder="0" value="' +
-           (num(r.score) === null ? '' : r.score) + '"><span class="unit" id="rcMax">/' + (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].max : 100) + '</span></div></div>';
+      /* 录入方式切换 */
+      h += '<div class="field" style="margin-top:13px"><label>录入方式</label>' +
+           '<div class="seg-btn qt-toggle" style="margin-bottom:0">' +
+           '<button class="' + (singleMode === 'parts' ? 'on' : '') + '" data-mode="parts">按题型</button>' +
+           '<button class="' + (singleMode === 'score' ? 'on' : '') + '" data-mode="score">直接填分</button></div></div>';
+      if (singleMode === 'parts') {
+        h += '<div class="field"><label>题型得分<span class="lab-opt">填答对题数或该题得分，自动折算</span></label><div class="qt-list">';
+        questionTypes(r.subject).forEach(function (q) {
+          var v = partVals[q.key];
+          h += '<div class="qt-row"><div class="qt-name">' + q.name + '<em>' +
+               (q.mode === 'count' ? '每题 ' + q.per + ' 分 · 共 ' + q.count + ' 题' : '满分 ' + q.max + ' 分') +
+               '</em></div><div class="qt-in"><input type="number" inputmode="decimal" step="' +
+               (q.mode === 'count' ? '1' : '0.5') + '" data-qt="' + q.key + '" placeholder="0" value="' +
+               (v === undefined || v === null ? '' : v) + '"><span class="unit">' +
+               (q.mode === 'count' ? '/' + q.count + ' 题' : '/' + q.max + ' 分') + '</span></div></div>';
+        });
+        h += '</div></div>';
+        h += '<div class="sum-box"><span class="k">自动计算得分</span><span class="v num" id="rcSum">0<small>/' +
+             partsMax(r.subject) + '</small></span></div>';
+        h += '<div class="qt-break" id="rcBreak"></div>';
+        h += '<div class="qt-note">同一年份可以记录多次 · 曲线图取该年最高分，其他记录只显示为圆点</div>';
+      } else {
+        h += '<div class="field"><label>分数</label><div class="field-inline">' +
+             '<input type="number" inputmode="decimal" id="rcScore" style="text-align:left;padding:13px 14px;border-radius:15px;background:#fff;border:.5px solid rgba(122,106,84,.16);width:100%" placeholder="0" value="' +
+             (num(r.score) === null ? '' : r.score) + '"><span class="unit" id="rcMax">/' + (SUBJECT_MAP[r.subject] ? SUBJECT_MAP[r.subject].max : 100) + '</span></div></div>';
+      }
     }
     h += noteField(r);
     h += '<button class="btn-primary" id="rcSave">保存记录</button>';
@@ -1516,10 +1693,18 @@ function recordSheet(rec) {
     return h;
   }
   function recalcSum(root) {
-    var sum = 0;
-    root.querySelectorAll('input[data-k]').forEach(function (i) { sum += num(i.value) || 0; });
     var el = root.querySelector('#rcSum');
-    if (el) el.innerHTML = (Math.round(sum * 10) / 10) + '<small>/500</small>';
+    if (!el) return;
+    if (type === 'full') {
+      var sum = 0;
+      root.querySelectorAll('input[data-k]').forEach(function (i) { sum += num(i.value) || 0; });
+      el.innerHTML = (Math.round(sum * 10) / 10) + '<small>/500</small>';
+    } else if (singleMode === 'parts') {
+      var st = partsStat(r.subject, collectParts(root));
+      el.innerHTML = st.total + '<small>/' + partsMax(r.subject) + '</small>';
+      var br = root.querySelector('#rcBreak');
+      if (br) br.textContent = st.items.map(function (it) { return it.q.name + ' ' + it.txt; }).join(' · ');
+    }
   }
   /* 把当前输入写回 r，避免切换记录类型时丢失已填内容 */
   function syncInputs(root) {
@@ -1534,6 +1719,8 @@ function recordSheet(rec) {
     root.querySelectorAll('input[data-k]').forEach(function (i) {
       r[i.getAttribute('data-k')] = i.value === '' ? null : num(i.value);
     });
+    var qtEls = root.querySelectorAll('input[data-qt]');
+    if (qtEls.length) partVals = collectParts(root);
   }
   function mountFn(root) {
     root.querySelectorAll('[data-t]').forEach(function (b) {
@@ -1541,16 +1728,41 @@ function recordSheet(rec) {
         syncInputs(root);
         type = b.getAttribute('data-t');
         r.type = type;
+        if (type === 'single') {
+          singleMode = 'parts';
+          partVals = {};
+          if (!SUBJECT_MAP[r.subject]) r.subject = 'math';
+          r.score = null;
+        }
         redraw();
       };
     });
     root.querySelectorAll('[data-s]').forEach(function (b) {
       b.onclick = function () {
-        r.subject = b.getAttribute('data-s');
-        root.querySelectorAll('[data-s]').forEach(function (x) { x.classList.remove('on'); });
-        b.classList.add('on');
-        var mx = root.querySelector('#rcMax');
-        if (mx) mx.textContent = '/' + SUBJECT_MAP[r.subject].max;
+        var key = b.getAttribute('data-s');
+        if (key === r.subject && singleMode === 'parts') return;
+        syncInputs(root);
+        r.subject = key;
+        if (singleMode === 'parts') { partVals = {}; redraw(); }
+        else {
+          root.querySelectorAll('[data-s]').forEach(function (x) { x.classList.remove('on'); });
+          b.classList.add('on');
+          var mx = root.querySelector('#rcMax');
+          if (mx) mx.textContent = '/' + SUBJECT_MAP[r.subject].max;
+        }
+      };
+    });
+    root.querySelectorAll('[data-mode]').forEach(function (b) {
+      b.onclick = function () {
+        var mode = b.getAttribute('data-mode');
+        if (mode === singleMode) return;
+        syncInputs(root);
+        if (mode === 'score') {
+          var st = partsStat(r.subject, collectParts(root));
+          r.score = st.total > 0 ? st.total : null;
+        }
+        singleMode = mode;
+        redraw();
       };
     });
     // 年份快选：点击写入输入框并高亮，再点取消
@@ -1570,7 +1782,7 @@ function recordSheet(rec) {
         x.classList.toggle('on', x.getAttribute('data-y') === v);
       });
     };
-    root.querySelectorAll('input[data-k]').forEach(function (i) {
+    root.querySelectorAll('input[data-k],input[data-qt]').forEach(function (i) {
       i.oninput = function () { recalcSum(root); };
     });
     recalcSum(root);
@@ -1598,6 +1810,19 @@ function recordSheet(rec) {
         if (editing) { replaceRecord(obj); } else { state.records.push(obj); markFresh(obj.id); }
         save(); refresh(); closeSheet();
         toast('总分 ' + (Math.round(sum * 10) / 10) + ' 已记录 · 第 ' + state.records.length + ' 条');
+      } else if (singleMode === 'parts') {
+        syncInputs(root);
+        var any = false;
+        questionTypes(r.subject).forEach(function (q) { if (partVals[q.key] !== undefined && partVals[q.key] !== null) any = true; });
+        if (!any) { toast('请至少填写一个题型'); return; }
+        var res = readParts(r.subject, partVals);
+        if (!res.ok) { toast(res.error); return; }
+        var o3 = { id: editing ? rec.id : uid(), date: date, type: 'single', subject: r.subject, score: res.total, parts: res.parts };
+        if (yInfo.year !== null) o3.year = yInfo.year;
+        if (note) o3.note = note;
+        if (editing) { replaceRecord(o3); } else { state.records.push(o3); markFresh(o3.id); }
+        save(); refresh(); closeSheet();
+        toast(SUBJECT_MAP[r.subject].name + ' ' + res.total + ' 分已记录（按题型）');
       } else {
         var sc = num(root.querySelector('#rcScore').value);
         if (sc === null) { toast('请输入分数'); return; }
@@ -1942,7 +2167,10 @@ window.KY = {
   exportData: exportData, backupText: backupText, buildBackup: buildBackup,
   parseBackup: parseBackup, normalizeImportedState: normalizeImportedState,
   applyBackup: applyBackup, importSheet: importSheet, pickImportFile: pickImportFile,
-  mergeImportedState: mergeImportedState
+  mergeImportedState: mergeImportedState,
+  SUBJECTS: SUBJECTS, SUBJECT_MAP: SUBJECT_MAP, QUESTION_TYPES: QUESTION_TYPES,
+  questionTypes: questionTypes, readParts: readParts, partsStat: partsStat, partsMax: partsMax,
+  yearBestPoints: yearBestPoints
 };
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

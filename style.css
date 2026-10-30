@@ -506,6 +506,20 @@ main{padding:0 0 calc(128px + var(--safe-b));}
   font-size:15px;font-weight:650;background:#fff;border:.5px solid var(--stroke);
   box-shadow:var(--shadow-soft);font-variant-numeric:tabular-nums;}
 .field .year-row input[type=number]:focus{outline:none;border-color:rgba(10,132,255,.45);}
+/* 题型录入：每行一个题型，右侧填答对题数/得分 */
+.qt-toggle button{padding:9px 6px;border-radius:13px;font-size:12.5px;}
+.qt-list{background:rgba(255,255,255,.72);border:.5px solid var(--stroke);border-radius:17px;overflow:hidden;box-shadow:var(--shadow-soft);}
+.qt-row{display:flex;align-items:center;gap:10px;padding:10px 13px;border-bottom:.5px solid rgba(122,106,84,.10);}
+.qt-row:last-child{border-bottom:none;}
+.qt-name{flex:1;min-width:0;font-size:13.5px;font-weight:560;color:var(--ink);line-height:1.25;}
+.qt-name em{display:block;font-style:normal;font-size:10.5px;color:var(--ink-3);font-weight:450;margin-top:2px;}
+.qt-in{display:flex;align-items:center;gap:5px;flex:0 0 auto;}
+.qt-in input[type=number]{width:58px;padding:7px 2px;text-align:center;border-radius:10px;font-size:14.5px;font-weight:650;
+  background:#fff;border:.5px solid var(--stroke);font-variant-numeric:tabular-nums;-webkit-appearance:none;appearance:none;}
+.qt-in input:focus{outline:none;border-color:rgba(10,132,255,.45);}
+.qt-in .unit{font-size:10px;color:var(--ink-3);min-width:46px;white-space:nowrap;}
+.qt-break{font-size:10.5px;color:var(--ink-3);line-height:1.6;margin:-6px 2px 10px;}
+.qt-note{font-size:11px;color:var(--ink-3);line-height:1.55;margin:0 2px 14px;}
 .ac-list{border-radius:18px;overflow:hidden;background:rgba(255,255,255,.72);
   border:.5px solid rgba(255,255,255,.9);margin-bottom:14px;box-shadow:var(--shadow-soft);}
 .ac-item{padding:14px 16px;font-size:15px;display:flex;align-items:center;gap:11px;
